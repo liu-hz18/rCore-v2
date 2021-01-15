@@ -12,6 +12,7 @@
 //! - `#![feature(global_asm)]`  
 //!   内嵌整个汇编文件
 #![feature(global_asm)]
+#![feature(llvm_asm)]
 
 // 汇编编写的程序入口，具体见该文件 entry.asm
 global_asm!(include_str!("entry.asm"));
@@ -83,10 +84,38 @@ fn panic(_info: &PanicInfo) -> ! {
 // OpenSBI 固件运行在特权级别很高的计算机硬件环境中，即 RISC-V 64 的 M Mode（CPU 加电后也就运行在 M Mode）
 // 我们将要实现的 OS 内核运行在 S Mode, 支持现代类 Unix 操作系统所需要的 基于页面的虚拟内存机制 是其核心。
 
+// Step 0.6 运行QEMU
+// $ qemu-system-riscv64 --machine virt --nographic --bios default
+// QEMU 可以使用 ctrl+a 再按下 x 键退出。
+
+// 加上一些输出
+/// 在屏幕上输出一个字符，目前我们先不用了解其实现原理
+pub fn console_putchar(ch: u8) {
+    let _ret: usize;
+    let arg0: usize = ch as usize;
+    let arg1: usize = 0;
+    let arg2: usize = 0;
+    let which: usize = 1;
+    unsafe {
+        llvm_asm!("ecall"
+             : "={x10}" (_ret)
+             : "{x10}" (arg0), "{x11}" (arg1), "{x12}" (arg2), "{x17}" (which)
+             : "memory"
+             : "volatile"
+        );
+    }
+}
+
+
 /// Rust 的入口函数
 ///
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
 #[no_mangle]
 pub extern "C" fn rust_main() -> ! {
+    // 在屏幕上输出 "OK\n" ，随后进入死循环
+    console_putchar(b'O');
+    console_putchar(b'K');
+    console_putchar(b'\n');
+
     loop {}
 }
