@@ -1,0 +1,4 @@
+# 编译的目标平台
+# 避免每次 `cargo build --target riscv64imac-unknown-none-elf` 都要加 --target 参数
+[build]
+target = "riscv64imac-unknown-none-elf"

@@ -49,9 +49,16 @@ pub extern "C" fn _start() -> ! { // Rust 中的 FFI （Foreign Function Interfa
     loop {} // 由于程序会一直停在 crt0 的入口点，我们可以移除没用的 main 函数。
 }
 
+// Step 0.3 编译为裸机目标
 // 此时会报链接错误，因为：链接器的默认配置假定程序依赖于 C 语言的运行时环境，但我们的程序并不依赖于它。
 // 为了解决这个错误，我们需要告诉链接器，它不应该包含 C 语言运行时环境。
 // 在这里，我们选择编译为裸机目标（Bare Metal Target），不链接任何运行时环境
+// 为了描述不同的环境，Rust 使用一个称为目标三元组（Target Triple）的字符串 <arch><sub>-<vendor>-<sys>-<abi>
+// x86_64-unknown-linux-gnu:  CPU 架构 x86_64, 供应商 unknown, 操作系统 linux, 二进制接口 gnu
+// 我们可以另选一个底层没有操作系统的运行环境
+// $ rustup target add riscv64imac-unknown-none-elf
+// $ cargo build --target riscv64imac-unknown-none-elf
+
 
 // fn main() {
 //     //println!("Hello, rCore-Tutorial!");
