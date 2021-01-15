@@ -6,11 +6,15 @@
 //! - `#![no_std]`  
 //!   禁用标准库
 #![no_std]
-//!
 //! - `#![no_main]`  
 //!   不使用 `main` 函数等全部 Rust-level 入口点来作为程序入口。告诉编译器我们不用常规的入口点
 #![no_main]
+//! - `#![feature(global_asm)]`  
+//!   内嵌整个汇编文件
+#![feature(global_asm)]
 
+// 汇编编写的程序入口，具体见该文件 entry.asm
+global_asm!(include_str!("entry.asm"));
 
 // 还会提示缺失 panic_handler ，它默认使用标准库 std 中实现的函数并依赖于操作系统特殊的文件描述符
 // 所以自己实现panic函数
@@ -44,10 +48,10 @@ fn panic(_info: &PanicInfo) -> ! {
 
 /// 覆盖 crt0 中的 _start 函数
 /// 我们暂时将它的实现为一个死循环
-#[no_mangle] // 告诉编译器对于此函数禁用编译期间的名称重整（Name Mangling）即确保编译器生成一个名为 _start 的函数，而非为了实现函数重载等而生成的形如 _ZN3blog_os4_start7hb173fedf945531caE 散列化后的函数名。
-pub extern "C" fn _start() -> ! { // Rust 中的 FFI （Foreign Function Interface, 语言交互接口）语法, 表示此函数是一个 C 函数而非 Rust 函数
-    loop {} // 由于程序会一直停在 crt0 的入口点，我们可以移除没用的 main 函数。
-}
+// #[no_mangle] // 告诉编译器对于此函数禁用编译期间的名称重整（Name Mangling）即确保编译器生成一个名为 _start 的函数，而非为了实现函数重载等而生成的形如 _ZN3blog_os4_start7hb173fedf945531caE 散列化后的函数名。
+// pub extern "C" fn _start() -> ! { // Rust 中的 FFI （Foreign Function Interface, 语言交互接口）语法, 表示此函数是一个 C 函数而非 Rust 函数
+//     loop {} // 由于程序会一直停在 crt0 的入口点，我们可以移除没用的 main 函数。
+// }
 
 // Step 0.3 编译为裸机目标
 // 此时会报链接错误，因为：链接器的默认配置假定程序依赖于 C 语言的运行时环境，但我们的程序并不依赖于它。
@@ -74,7 +78,15 @@ pub extern "C" fn _start() -> ! { // Rust 中的 FFI （Foreign Function Interfa
 // 对于 OS 内核，一般都将其地址空间放在高地址上。
 // 并且在 QEMU 模拟的 RISC-V 中，DRAM 内存的物理地址是从 0x80000000 开始，有 128MB 大小
 
+// Step 0.5 重写程序入口点
+// 在基于 RISC-V 的计算机系统中，OpenSBI (bootloader) 是一种固件。
+// OpenSBI 固件运行在特权级别很高的计算机硬件环境中，即 RISC-V 64 的 M Mode（CPU 加电后也就运行在 M Mode）
+// 我们将要实现的 OS 内核运行在 S Mode, 支持现代类 Unix 操作系统所需要的 基于页面的虚拟内存机制 是其核心。
 
-// fn main() {
-//     //println!("Hello, rCore-Tutorial!");
-// }
+/// Rust 的入口函数
+///
+/// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
+#[no_mangle]
+pub extern "C" fn rust_main() -> ! {
+    loop {}
+}
