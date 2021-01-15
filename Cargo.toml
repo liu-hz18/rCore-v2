@@ -1,0 +1,17 @@
+[package]
+name = "os"
+version = "0.1.0"
+authors = ["liuhz <1456437967@qq.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+
+# panic 的处理策略设为直接终止，也就是直接调用我们的 panic_handler 而不是先进行 堆栈展开 等处理再调用。因为我们没有实现堆栈展开的功能
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
