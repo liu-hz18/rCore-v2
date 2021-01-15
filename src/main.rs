@@ -70,6 +70,11 @@ pub extern "C" fn _start() -> ! { // Rust 中的 FFI （Foreign Function Interfa
 // $ rust-objcopy target/riscv64imac-unknown-none-elf/debug/os --strip-all -O binary target/riscv64imac-unknown-none-elf/debug/kernel.bin
 // --strip-all 表明丢弃所有符号表及调试信息，-O binary 表示输出为二进制文件
 
+// Step 0.4 调整内存布局, 改变它的链接地址
+// 对于 OS 内核，一般都将其地址空间放在高地址上。
+// 并且在 QEMU 模拟的 RISC-V 中，DRAM 内存的物理地址是从 0x80000000 开始，有 128MB 大小
+
+
 // fn main() {
 //     //println!("Hello, rCore-Tutorial!");
 // }
