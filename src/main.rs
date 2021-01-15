@@ -12,31 +12,22 @@
 //! - `#![feature(global_asm)]`  
 //!   内嵌整个汇编文件
 #![feature(global_asm)]
+//! # 一些 unstable 的功能需要在 crate 层级声明后才可以使用
+//! - `#![feature(llvm_asm)]`  
+//!   内嵌汇编
 #![feature(llvm_asm)]
+//! - `#![feature(panic_info_message)]`  
+//!   panic! 时，获取其中的信息并打印
+#![feature(panic_info_message)]
+
+#[macro_use]
+mod console;
+mod panic;
+mod sbi;
+
 
 // 汇编编写的程序入口，具体见该文件 entry.asm
 global_asm!(include_str!("entry.asm"));
-
-// 还会提示缺失 panic_handler ，它默认使用标准库 std 中实现的函数并依赖于操作系统特殊的文件描述符
-// 所以自己实现panic函数
-// 类型为 PanicInfo 的参数包含了 panic 发生的文件名、代码行数和可选的错误信息。
-// 这里我们用到了核心库 core，与标准库 std 不同，这个库不需要操作系统的支持
-use core::panic::PanicInfo;
-/// 当 panic 发生时会调用该函数，我们暂时将它的实现为一个死循环
-/// 这个函数从不返回，所以他被标记为发散函数（Diverging Function）
-/// 发散函数的返回类型称作 Never 类型（"never" type），记为 !
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
-}
-
-// 报的第三个错误是:
-// error: language item required, but not found: `eh_personality` (Exception Handling personality)
-// 它是一个标记某函数用来实现 堆栈展开(Stack Unwinding) 处理功能的语义项
-// 通常当程序出现了异常时，从异常点开始会沿着 caller 调用栈一层一层回溯，直到找到某个函数能够捕获这个异常或终止程序。这个过程称为堆栈展开。
-// 当程序出现异常时，我们需要沿着调用栈一层层回溯上去回收每个 caller 中定义的局部变量（这里的回收包括 C++ 的 RAII 的析构以及 Rust 的 drop 等）避免造成捕获异常并恢复后的内存溢出。
-// 简单起见，我们这里不会进一步捕获异常也不需要清理现场，我们设置为直接退出程序即可。
-
 
 // Step 0.2: 移除运行时环境依赖
 // 第四个错误: error: requires `start` lang_item
@@ -46,13 +37,6 @@ fn panic(_info: &PanicInfo) -> ! {
 // 这个 Rust 的运行时入口点就是被 start 语义项标记的。
 // Rust 运行时环境的入口点 start 结束之后才会调用 main 函数进入主程序。
 // 所以我们需要重写覆盖整个 crt0 入口点
-
-/// 覆盖 crt0 中的 _start 函数
-/// 我们暂时将它的实现为一个死循环
-// #[no_mangle] // 告诉编译器对于此函数禁用编译期间的名称重整（Name Mangling）即确保编译器生成一个名为 _start 的函数，而非为了实现函数重载等而生成的形如 _ZN3blog_os4_start7hb173fedf945531caE 散列化后的函数名。
-// pub extern "C" fn _start() -> ! { // Rust 中的 FFI （Foreign Function Interface, 语言交互接口）语法, 表示此函数是一个 C 函数而非 Rust 函数
-//     loop {} // 由于程序会一直停在 crt0 的入口点，我们可以移除没用的 main 函数。
-// }
 
 // Step 0.3 编译为裸机目标
 // 此时会报链接错误，因为：链接器的默认配置假定程序依赖于 C 语言的运行时环境，但我们的程序并不依赖于它。
@@ -88,34 +72,11 @@ fn panic(_info: &PanicInfo) -> ! {
 // $ qemu-system-riscv64 --machine virt --nographic --bios default
 // QEMU 可以使用 ctrl+a 再按下 x 键退出。
 
-// 加上一些输出
-/// 在屏幕上输出一个字符，目前我们先不用了解其实现原理
-pub fn console_putchar(ch: u8) {
-    let _ret: usize;
-    let arg0: usize = ch as usize;
-    let arg1: usize = 0;
-    let arg2: usize = 0;
-    let which: usize = 1;
-    unsafe {
-        llvm_asm!("ecall"
-             : "={x10}" (_ret)
-             : "{x10}" (arg0), "{x11}" (arg1), "{x12}" (arg2), "{x17}" (which)
-             : "memory"
-             : "volatile"
-        );
-    }
-}
-
-
 /// Rust 的入口函数
 ///
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
 #[no_mangle]
 pub extern "C" fn rust_main() -> ! {
-    // 在屏幕上输出 "OK\n" ，随后进入死循环
-    console_putchar(b'O');
-    console_putchar(b'K');
-    console_putchar(b'\n');
-
-    loop {}
+    println!("Hello rCore-Tutorial!");
+    panic!("end of rust_main")
 }
