@@ -55,10 +55,20 @@ pub extern "C" fn _start() -> ! { // Rust 中的 FFI （Foreign Function Interfa
 // 在这里，我们选择编译为裸机目标（Bare Metal Target），不链接任何运行时环境
 // 为了描述不同的环境，Rust 使用一个称为目标三元组（Target Triple）的字符串 <arch><sub>-<vendor>-<sys>-<abi>
 // x86_64-unknown-linux-gnu:  CPU 架构 x86_64, 供应商 unknown, 操作系统 linux, 二进制接口 gnu
+
 // 我们可以另选一个底层没有操作系统的运行环境
 // $ rustup target add riscv64imac-unknown-none-elf
 // $ cargo build --target riscv64imac-unknown-none-elf
+// 产物在 os/target/riscv64imac-unknown-none-elf/debug/os
 
+// $ file target/riscv64imac-unknown-none-elf/debug/os 查看文件信息
+// $ rust-objdump target/riscv64imac-unknown-none-elf/debug/os -x --arch-name=riscv64 查看程序元信息
+// for more information, see https://rcore-os.github.io/rCore-Tutorial-deploy/docs/lab-0/guide/part-5.html
+// $ rust-objdump target/riscv64imac-unknown-none-elf/debug/os -d --arch-name=riscv64 查看反汇编信息
+
+// 从 elf 格式可执行文件生成内核镜像
+// $ rust-objcopy target/riscv64imac-unknown-none-elf/debug/os --strip-all -O binary target/riscv64imac-unknown-none-elf/debug/kernel.bin
+// --strip-all 表明丢弃所有符号表及调试信息，-O binary 表示输出为二进制文件
 
 // fn main() {
 //     //println!("Hello, rCore-Tutorial!");
