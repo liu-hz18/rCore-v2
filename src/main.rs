@@ -19,12 +19,20 @@
 //! - `#![feature(panic_info_message)]`  
 //!   panic! 时，获取其中的信息并打印
 #![feature(panic_info_message)]
+//! - `#![feature(alloc_error_handler)]`
+//!   我们使用了一个全局动态内存分配器，以实现原本标准库中的堆内存分配。
+//!   而语言要求我们同时实现一个错误回调，这里我们直接 panic
+#![feature(alloc_error_handler)]
+
 
 #[macro_use]
 mod console;
 mod panic;
 mod sbi;
 mod interrupt;
+mod memory;
+
+extern crate alloc;
 
 // 汇编编写的程序入口，具体见该文件 entry.asm
 global_asm!(include_str!("entry.asm"));
@@ -100,6 +108,21 @@ global_asm!(include_str!("entry.asm"));
 // > 时钟中断（Timer Interrupt），对应 STIE 和 STIP
 // > 外部中断（External Interrupt），对应 SEIE 和 SEIP
 
+// Step 2.1 动态内存分配
+// 为了在我们的内核中支持动态内存分配，在 Rust 语言中，我们需要实现 Trait GlobalAlloc，将这个类实例化，并使用语义项 #[global_allocator] 进行标记。
+// 这样的话，编译器就会知道如何使用我们提供的内存分配函数进行动态内存分配。
+// 我们的需求是分配一块连续的、大小至少为 size 字节的虚拟内存，且对齐要求为 align 
+// 在这里使用 Buddy System 来实现这件事情。
+
+// Step 2.2 物理内存探测
+// 通过 MMIO（Memory Mapped I/O）技术将外设映射到一段物理地址，这样我们访问其他外设就和访问物理内存一样了
+// OpenSBI 固件 来完成对于包括物理内存在内的各外设的扫描，将扫描结果以 DTB（Device Tree Blob）的格式保存在物理内存中的某个地方。
+// 随后 OpenSBI 固件会将其地址保存在 a1 寄存器中，给我们使用。
+// [0x80000000, 0x88000000): DRAM, 128MB, 操作系统管理
+
+// Step 2.3 物理内存管理，分配和回收
+// 为了方便管理所有的物理页，我们需要实现一个分配器可以进行分配和回收的操作
+// 
 
 /// Rust 的入口函数
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
@@ -109,12 +132,40 @@ pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，�
     println!("Hello rCore-Tutorial!");
     // 初始化各种模块, 比如设置中断入口为 __interrupt, 以及开启时钟中断
     interrupt::init();
-    // 在 main 函数中主动使用 ebreak 来触发一个中断。
-    unsafe {
-        llvm_asm!("ebreak"::::"volatile"); // CPU负责跳到中断入口 __interrupt，保存上下文，之后跳到handle_interrupt(), 返回后 __restore，最后返回到内核态, 调用前后sp不变
+    memory::init();
+
+    // 注意这里的 KERNEL_END_ADDRESS 为 ref 类型，需要加 *
+    println!("END ADDR of KERNEL: {}", *memory::config::KERNEL_END_ADDRESS); // output: `END ADDR of KERNEL: PhysicalAddress(0x80a1cba0)`
+
+     // 物理页分配
+    for _ in 0..2 {
+        // FRAME_ALLOCATOR: Mutex<FrameAllocator< AllocatorImpl >>, AllocatorImpl是一个Trait
+        let frame_0 = match memory::frame::FRAME_ALLOCATOR.lock().alloc() { // 一次分配 1 个页
+            Result::Ok(frame_tracker) => frame_tracker,
+            Result::Err(err) => panic!("{}", err)
+        };
+        // frame_0, FRAME_ALLOCATOR unlocked.
+        let frame_1 = match memory::frame::FRAME_ALLOCATOR.lock().alloc() { // 即便取消frame_1的块，也不会死锁，frame_tracker生命期和for{}是一样的
+            Result::Ok(frame_tracker) => frame_tracker,
+            Result::Err(err) => panic!("{}", err)
+        };
+        // frame_1, FRAME_ALLOCATOR unlocked.
+        println!("{} and {}", frame_0.address(), frame_1.address());
+        // output: `PhysicalAddress(0x80a1e000) and PhysicalAddress(0x80a1f000)`
+        // 我们可以看到 frame_0 和 frame_1 会被自动析构然后回收，第二次又分配同样的地址。
+        // scope end, frame_tracker Dropped here. 很奇怪，这时 frame_tracker 的 lifetime 和 for {} 的scope一样。
+        // 一定程度上反映了rust生命期的设计缺陷。
     }
-    // unreachable!();
-    loop{}
+
+    // 语法上存在设计缺陷：
+    // 这里的 frame_tracker 变量会在 match 语法里面析构。但是析构的时候，外层的 lock() 函数还没有释放锁，这样写会导致死锁。
+    // match memory::frame::FRAME_ALLOCATOR.lock().alloc() {
+    //     Result::Ok(frame_tracker) => frame_tracker,
+    //     Result::Err(err) => panic!("{}", err)
+    // // scope end, frame_tracker Dropped here. but need FRAME_ALLOCATOR to be unlocked.
+    // };
+    // // FRAME_ALLOCATOR unlocked here. but will never reached here due to the deadlock.
+
     panic!("end of rust_main")
     // 如果最后不是panic，而是让rust_main返回，那么会回到 entry.asm 中。
     // 但是，entry.asm 并没有在后面写任何指令，这意味着程序将接着向后执行内存中的任何指令。

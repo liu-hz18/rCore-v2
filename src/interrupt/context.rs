@@ -1,6 +1,6 @@
 #![warn(unused_imports)]
 use core::fmt;
-use riscv::register::{sstatus::Sstatus, scause::Scause};
+use riscv::register::{sstatus::Sstatus};
 
 // 中断处理过程中需要保存的上下文(Context)向量
 
@@ -10,14 +10,14 @@ use riscv::register::{sstatus::Sstatus, scause::Scause};
 // 为了状态的保存与恢复，我们可以先用栈上的一小段空间来把需要保存的全部通用寄存器和 CSR 寄存器保存在栈上，保存完之后在跳转到 Rust 编写的中断处理函数
 
 
-#[repr(C)]
+#[repr(C)] // 和C语言保持一致
 pub struct Context {
     pub x: [usize; 32],     // 32 个通用寄存器
     pub sstatus: Sstatus,   // 具有许多状态位，控制全局中断使能等。
     pub sepc: usize         // Exception Program Counter, 用来记录触发中断的指令的地址。
 }
 
-const reg_names: [&str; 32] = [
+const REG_NAMES: [&str; 32] = [
     "x0(zero)",
     "x1(ra)",
     "x2(sp)",
@@ -59,10 +59,10 @@ impl fmt::Debug for Context {
         write!(f, "  {:?} (uie={}, sie={}, upie={}, spie={})\n", 
             self.sstatus, self.sstatus.uie(), self.sstatus.sie(),
             self.sstatus.upie(), self.sstatus.spie()
-        );
-        write!(f, "  sepc      = 0x{:016x}\n", self.sepc);
+        )?;
+        write!(f, "  sepc      = 0x{:016x}\n", self.sepc)?;
         for i in 0..32 {
-            write!(f, "  {:9} = 0x{:016x}\n", reg_names[i], self.x[i]);
+            write!(f, "  {:9} = 0x{:016x}\n", REG_NAMES[i], self.x[i])?;
         }
         Ok(())
     }
