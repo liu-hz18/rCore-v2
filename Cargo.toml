@@ -13,6 +13,7 @@ buddy_system_allocator = "0.6.0"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 spin = "0.7.1" # 它无需任何操作系统支持
 bit_field = "0.10.1"
+bitflags = "1.2.1"
 
 # panic 的处理策略设为直接终止，也就是直接调用我们的 panic_handler 而不是先进行 堆栈展开 等处理再调用。因为我们没有实现堆栈展开的功能
 [profile.dev]
