@@ -114,6 +114,12 @@ global_asm!(include_str!("entry.asm"));
 // 我们的需求是分配一块连续的、大小至少为 size 字节的虚拟内存，且对齐要求为 align 
 // 在这里使用 Buddy System 来实现这件事情。
 
+// Step 2.2 物理内存探测
+// 通过 MMIO（Memory Mapped I/O）技术将外设映射到一段物理地址，这样我们访问其他外设就和访问物理内存一样了
+// OpenSBI 固件 来完成对于包括物理内存在内的各外设的扫描，将扫描结果以 DTB（Device Tree Blob）的格式保存在物理内存中的某个地方。
+// 随后 OpenSBI 固件会将其地址保存在 a1 寄存器中，给我们使用。
+// [0x80000000, 0x88000000): DRAM, 128MB, 操作系统管理
+
 /// Rust 的入口函数
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
@@ -123,6 +129,9 @@ pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，�
     // 初始化各种模块, 比如设置中断入口为 __interrupt, 以及开启时钟中断
     interrupt::init();
     memory::init();
+
+    // 注意这里的 KERNEL_END_ADDRESS 为 ref 类型，需要加 *
+    println!("END ADDR of KERNEL: {}", *memory::config::KERNEL_END_ADDRESS); // output: `END ADDR of KERNEL: PhysicalAddress(0x80a1cba0)`
 
     // 动态内存分配测试
     use alloc::boxed::Box;

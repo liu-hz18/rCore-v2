@@ -6,6 +6,7 @@
 // 所以在模块范围内不提示「未使用的函数」等警告
 #![allow(dead_code)]
 
+pub mod address;
 pub mod heap;
 pub mod config;
 
