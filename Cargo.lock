@@ -66,6 +66,8 @@ name = "os"
 version = "0.1.0"
 dependencies = [
  "algorithm",
+ "bit_field",
+ "bitflags",
  "buddy_system_allocator",
  "lazy_static",
  "riscv",
