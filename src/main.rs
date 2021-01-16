@@ -120,6 +120,10 @@ global_asm!(include_str!("entry.asm"));
 // 随后 OpenSBI 固件会将其地址保存在 a1 寄存器中，给我们使用。
 // [0x80000000, 0x88000000): DRAM, 128MB, 操作系统管理
 
+// Step 2.3 物理内存管理，分配和回收
+// 为了方便管理所有的物理页，我们需要实现一个分配器可以进行分配和回收的操作
+// 
+
 /// Rust 的入口函数
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
@@ -133,22 +137,33 @@ pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，�
     // 注意这里的 KERNEL_END_ADDRESS 为 ref 类型，需要加 *
     println!("END ADDR of KERNEL: {}", *memory::config::KERNEL_END_ADDRESS); // output: `END ADDR of KERNEL: PhysicalAddress(0x80a1cba0)`
 
-    // 动态内存分配测试
-    use alloc::boxed::Box;
-    use alloc::vec::Vec;
-    let v = Box::new(5);
-    assert_eq!(*v, 5);
-    core::mem::drop(v);
+     // 物理页分配
+    for _ in 0..2 {
+        let frame_0 = match memory::frame::FRAME_ALLOCATOR.lock().alloc() {
+            Result::Ok(frame_tracker) => frame_tracker,
+            Result::Err(err) => panic!("{}", err)
+        };
+        // frame_0, FRAME_ALLOCATOR unlocked.
+        let frame_1 = match memory::frame::FRAME_ALLOCATOR.lock().alloc() { // 即便取消frame_1的块，也不会死锁，frame_tracker生命期和for{}是一样的
+            Result::Ok(frame_tracker) => frame_tracker,
+            Result::Err(err) => panic!("{}", err)
+        };
+        // frame_1, FRAME_ALLOCATOR unlocked.
+        println!("{} and {}", frame_0.address(), frame_1.address());
+        // output: `PhysicalAddress(0x80a1e000) and PhysicalAddress(0x80a1f000)`
+        // 我们可以看到 frame_0 和 frame_1 会被自动析构然后回收，第二次又分配同样的地址。
+        // scope end, frame_tracker Dropped here. 很奇怪，这时 frame_tracker 的 lifetime 和 for {} 的scope一样。
+        // 一定程度上反映了rust生命期的设计缺陷。
+    }
 
-    let mut vec = Vec::new();
-    for i in 0..10000 {
-        vec.push(i);
-    }
-    assert_eq!(vec.len(), 10000);
-    for (i, value) in vec.into_iter().enumerate() {
-        assert_eq!(value, i);
-    }
-    println!("heap test passed");
+    // 语法上存在设计缺陷：
+    // 这里的 frame_tracker 变量会在 match 语法里面析构。但是析构的时候，外层的 lock() 函数还没有释放锁，这样写会导致死锁。
+    // match memory::frame::FRAME_ALLOCATOR.lock().alloc() {
+    //     Result::Ok(frame_tracker) => frame_tracker,
+    //     Result::Err(err) => panic!("{}", err)
+    // // scope end, frame_tracker Dropped here. but need FRAME_ALLOCATOR to be unlocked.
+    // };
+    // // FRAME_ALLOCATOR unlocked here. but will never reached here due to the deadlock.
 
     panic!("end of rust_main")
     // 如果最后不是panic，而是让rust_main返回，那么会回到 entry.asm 中。

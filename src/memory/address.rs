@@ -9,6 +9,10 @@ use super::config::PAGE_SIZE;
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct PhysicalAddress(pub usize);
 
+// 我们希望用物理页号（Physical Page Number，PPN）来代表一物理页，
+// 实际上代表物理地址范围在 [PPN×4KB,(PPN+1)×4KB) 的一物理页。
+// 每个物理页的开头地址必须是 4 KB 的倍数
+// 对于一个物理地址，其除以 4096（或者说右移 12 位）的商即为这个物理地址所在的物理页号。
 /// 物理页号
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -34,7 +38,7 @@ macro_rules! implement_address_to_page_number {
         }
         impl From<$address_type> for $page_number_type {
             /// 从地址转换为页号，直接进行移位操作
-            ///
+            /// 对于一个物理地址，其除以 4096(4KB)（或者说右移 12 位）的商即为这个物理地址所在的物理页号。
             /// 不允许转换没有对齐的地址，这种情况应当使用 `floor()` 和 `ceil()`
             fn from(address: $address_type) -> Self {
                 assert!(address.0 % PAGE_SIZE == 0);

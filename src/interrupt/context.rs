@@ -10,7 +10,7 @@ use riscv::register::{sstatus::Sstatus};
 // 为了状态的保存与恢复，我们可以先用栈上的一小段空间来把需要保存的全部通用寄存器和 CSR 寄存器保存在栈上，保存完之后在跳转到 Rust 编写的中断处理函数
 
 
-#[repr(C)]
+#[repr(C)] // 和C语言保持一致
 pub struct Context {
     pub x: [usize; 32],     // 32 个通用寄存器
     pub sstatus: Sstatus,   // 具有许多状态位，控制全局中断使能等。

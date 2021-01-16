@@ -20,6 +20,7 @@ lazy_static! { // lazy_static! 宏帮助我们在第一次使用 lazy_static! �
     pub static ref KERNEL_END_ADDRESS: PhysicalAddress = PhysicalAddress(kernel_end as usize);
 }
 
+// 我们通过划分出一段静态内存为操作系统实现了动态内存的分配
 // 我们可以直接开一个静态的 8M 数组作为堆的空间，然后调用 @jiege 开发的 Buddy System Allocator。
 /// 操作系统动态分配内存所用的堆大小（8M）
 pub const KERNEL_HEAP_SIZE: usize = 0x80_0000;
