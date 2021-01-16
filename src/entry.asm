@@ -11,6 +11,7 @@
 _start:
     la sp, boot_stack_top # 修改栈指针寄存器 sp 为 .bss.stack 段的结束地址, 由于栈是从高地址往低地址增长，所以高地址是初始的栈顶
     call rust_main # 我们的内核运行环境设置完成了，正式进入内核。
+    jr x0 # 作为lab-1的暂时代码，移除rust_main中的panic!，使得程序返回到这里，之后跳转到0地址，引起LoadFault. 打印SUCCESS!
 
     # 回忆：bss 段是 ELF 文件中只记录长度，而全部初始化为 0 的一段内存空间
     # 这里声明字段 .bss.stack 作为操作系统启动时的栈

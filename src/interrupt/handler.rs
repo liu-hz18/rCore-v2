@@ -34,8 +34,11 @@ pub fn handle_interrupt(context: &mut Context, scause: Scause, stval: usize) {
     match scause.cause() {
         // 断点中断（ebreak）
         Trap::Exception(Exception::Breakpoint) => breakpoint(context),
+        // Load Fault, 访问不存在地址
+        Trap::Exception(Exception::LoadFault) => loadfault(context, stval),
         // 时钟中断
         Trap::Interrupt(Interrupt::SupervisorTimer) => supervisor_timer(context),
+        
         // 其他情况，终止当前线程
         _ => fault(context, scause, stval),
     }
@@ -46,7 +49,7 @@ pub fn handle_interrupt(context: &mut Context, scause: Scause, stval: usize) {
 /// 
 /// 继续执行，其中 `sepc` 增加 2 字节，以跳过当前这条 `ebreak` 指令
 fn breakpoint(context: &mut Context) {
-    println!("Breakpoint at 0x{:x}", context.sepc);
+    println!("Breakpoint at 0x{:016x}", context.sepc);
     context.sepc += 2;
 }
 
@@ -57,10 +60,20 @@ fn supervisor_timer(_: &Context) {
     timer::tick();
 }
 
+/// 处理LoadFault
+/// 
+/// 直接panic, 终止程序
+fn loadfault(context: &Context, stval: usize) {
+    if stval == 0x0_usize { // 如果程序想要非法访问的地址是 0x0，则打印 SUCCESS!
+        println!("SUCCESS!");
+    }
+    panic!("LoadFault: \n{:?}\n  stval = 0x{:016x}", context, stval);
+}
+
 /// 出现未能解决的异常
 fn fault(context: &mut Context, scause: Scause, stval: usize) {
     panic!(
-        "Unresolved interrupt: {:?}\n{:x?}\nstval: {:x}",
+        "Unresolved interrupt: {:?}\n{:x?}\n  stval = 0x{:016x}",
         scause.cause(),
         context,
         stval

@@ -60,7 +60,7 @@ __interrupt:
     jal  handle_interrupt
 
     .globl __restore
-# 离开中断
+# 离开中断, 在handle_interrupt之后执行
 # 从 Context 中恢复所有寄存器，并跳转至 Context 中 sepc 的位置
 __restore:
     # 恢复 CSR
