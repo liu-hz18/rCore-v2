@@ -24,7 +24,7 @@
 mod console;
 mod panic;
 mod sbi;
-
+mod interrupt;
 
 // 汇编编写的程序入口，具体见该文件 entry.asm
 global_asm!(include_str!("entry.asm"));
@@ -72,11 +72,53 @@ global_asm!(include_str!("entry.asm"));
 // $ qemu-system-riscv64 --machine virt --nographic --bios default
 // QEMU 可以使用 ctrl+a 再按下 x 键退出。
 
+// Step 1.1 中断
+// 中断是我们在操作系统上首先实现的功能，因为它是操作系统所有功能的基础。
+// 默认所有中断实际上是交给机器态处理的，但是为了实现更多功能，机器态会将某些中断交由内核态处理。这些异常也正是我们编写操作系统所需要实现的。
+// 机器态可以通过异常委托机制（Machine Interrupt Delegation）将一部分中断设置为不经过机器态，直接由内核态处理
+
+// 发生中断时，硬件自动填写的寄存器:
+// sepc:  Exception Program Counter, 用来记录触发中断的指令的地址。
+// scause: 记录中断是否是硬件中断，以及具体的中断原因。
+// stval: scause 不足以存下中断所有的必须信息。例如缺页异常，就会将 stval 设置成需要访问但是不在内存中的地址，以便于操作系统将这个地址所在的页面加载进来。
+// 指导硬件处理中断的寄存器:
+// stvec: 设置内核态中断处理流程的入口地址。存储了一个基址 BASE 和模式 MODE (MODE 为 0 表示 Direct 模式，即遇到中断便跳转至 BASE 进行执行。MODE 为 1 表示 Vectored 模式，此时 BASE 应当指向一个向量，存有不同处理流程的地址，遇到中断会跳转至 BASE + 4 * cause 进行处理流程。)
+// sstatus: 具有许多状态位，控制全局中断使能等。
+// sie: Supervisor Interrupt Enable. 用来控制具体类型中断的使能，例如其中的 STIE 控制时钟中断使能。
+// sip: Supervisor Interrupt Pending. 记录每种中断是否被触发。仅当 sie 和 sip 的对应位都为 1 时，意味着开中断且已发生中断，这时中断最终触发。
+// sscratch: 在用户态，sscratch 保存内核栈的地址；在内核态，sscratch 的值为 0。为了能够执行内核态的中断处理流程，仅有一个入口地址是不够的。中断处理流程很可能需要使用栈，而程序当前的用户栈是不安全的。因此，我们还需要一个预设的安全的栈空间，存放在这里。可以在遇到中断时通过 sscratch 中的值判断中断前程序是否处于内核态。
+
+// 中断指令
+// ecall: 触发中断，进入更高一层的中断处理流程之中。用户态进行系统调用进入内核态中断处理流程，内核态进行 SBI 调用进入机器态中断处理流程，使用的都是这条指令。
+// sret: 从内核态返回用户态，同时将 pc 的值设置为 sepc（如果需要返回到 sepc 后一条指令，就需要在 sret 之前修改 sepc 的值）
+// ebreak: 触发一个断点。
+// mret: 从机器态返回内核态，同时将 pc 的值设置为 mepc。
+
+// sie 和 sip 寄存器分别保存不同中断种类的使能和触发记录
+// RISC-V 中将中断分为三种：
+// > 软件中断（Software Interrupt），对应 SSIE 和 SSIP
+// > 时钟中断（Timer Interrupt），对应 STIE 和 STIP
+// > 外部中断（External Interrupt），对应 SEIE 和 SEIP
+
+
 /// Rust 的入口函数
-///
+/// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
 #[no_mangle]
-pub extern "C" fn rust_main() -> ! {
+pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，那么这个函数有返回值，所以就要去掉 -> !
     println!("Hello rCore-Tutorial!");
+    // 初始化各种模块, 比如设置中断入口为 __interrupt, 以及开启时钟中断
+    interrupt::init();
+    // 在 main 函数中主动使用 ebreak 来触发一个中断。
+    unsafe {
+        llvm_asm!("ebreak"::::"volatile"); // CPU负责跳到中断入口 __interrupt，保存上下文，之后跳到handle_interrupt(), 返回后 __restore，最后返回到内核态, 调用前后sp不变
+    }
+    // unreachable!();
+    loop{}
     panic!("end of rust_main")
+    // 如果最后不是panic，而是让rust_main返回，那么会回到 entry.asm 中。
+    // 但是，entry.asm 并没有在后面写任何指令，这意味着程序将接着向后执行内存中的任何指令。
+    // $ rust-objdump -d -S target/riscv64imac-unknown-none-elf/debug/os | less
+    // 可以看到 _start 只有短短三条指令，而后面则放着许多 Rust 库中的函数。
+    // 这些指令可能导致程序进入循环，或崩溃退出。
 }

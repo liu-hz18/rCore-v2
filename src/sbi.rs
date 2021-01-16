@@ -20,7 +20,7 @@ const SBI_SHUTDOWN: usize = 8;
 fn sbi_call(which: usize, arg0: usize, arg1: usize, arg2: usize) -> usize {
     let ret;
     unsafe {
-        llvm_asm!("ecall"
+        llvm_asm!("ecall" // sbi_call 通过 ecall 实现，ecall 由 CPU 负责处理
             : "={x10}" (ret) // 前面的 = 表明汇编代码会修改该寄存器x10(a0)并作为最后的返回值。
             : "{x10}" (arg0), "{x11}" (arg1), "{x12}" (arg2), "{x17}" (which) // 分别通过寄存器 x10、x11、x12 和 x17（这四个寄存器又名 a0、a1、a2 和 a7） 传入参数 arg0、arg1、arg2 和 which
             : "memory"      // 如果汇编可能改变内存，则需要加入 memory 选项
@@ -47,4 +47,14 @@ pub fn console_getchar() -> usize {
 pub fn shutdown() -> ! {
     sbi_call(SBI_SHUTDOWN, 0, 0, 0);
     unreachable!()
+}
+
+// 每一次的时钟中断都需要操作系统设置一个下一次中断的时间，这样硬件会在指定的时间发出时钟中断。
+// 操作系统可请求（sbi_call 调用 ecall 指令）SBI 服务来完成时钟中断的设置。
+// OpenSBI 固件在接到 SBI 服务请求后，会帮助 OS 设置下一次要触发时钟中断的时间
+// CPU 在执行过程中会检查当前的时间间隔是否已经超过设置的时钟中断时间间隔，如果超时则会触发时钟中断。
+
+/// 设置下一次时钟中断的时间
+pub fn set_timer(time: usize) {
+    sbi_call(SBI_SET_TIMER, time, 0, 0);
 }
