@@ -10,9 +10,10 @@ ENTRY(_start)
 
 /* 数据存放起始地址 */
 /* OpenSBI 将自身放在 0x80000000，完成初始化后会跳转到 0x80200000，因此 _start 必须位于这个地址 */
-BASE_ADDRESS = 0x80200000;
+BASE_ADDRESS = 0xffffffff80200000; /* 修改为虚拟地址 */
 
 /* 我们可以用 *( ) 来表示 将各个文件中所有 符合括号内要求 的输入段 放在当前的位置。 */
+/* 把每个数据段都对齐到了 4KB，一个 4KB 的虚拟页中不会包含两个段，这意味着这个页的属性是可以确定的，标注属性更加方便 */
 SECTIONS
 {
     /* . 表示当前地址（location counter） */
@@ -22,6 +23,8 @@ SECTIONS
     /* 单独的一个 . 为当前地址（Location Counter） */
     kernel_start = .;
 
+    /* 加入对齐 */
+    . = ALIGN(4K);
     text_start = .;
 
     /* .text 字段 */
@@ -32,6 +35,8 @@ SECTIONS
         *(.text .text.*)
     }
 
+    /* 加入对齐 */
+    . = ALIGN(4K);
     rodata_start = .;
 
     /* .rodata 字段 */
@@ -39,7 +44,9 @@ SECTIONS
         /* 要链接的文件的 .rodata 字段集中放在这里 */
         *(.rodata .rodata.*)
     }
-
+    
+    /* 加入对齐 */
+    . = ALIGN(4K);
     data_start = .;
 
     /* .data 字段 */
@@ -48,6 +55,8 @@ SECTIONS
         *(.data .data.*)
     }
 
+    /* 加入对齐 */
+    . = ALIGN(4K);
     bss_start = .;
 
     /* .bss 字段 */
@@ -59,5 +68,7 @@ SECTIONS
     }
 
     /* 结束地址 */
+    /* 加入对齐 */
+    . = ALIGN(4K);
     kernel_end = .;
 }
