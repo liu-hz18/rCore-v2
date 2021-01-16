@@ -1,6 +1,7 @@
 //! 负责分配 / 回收的数据结构
 
 mod stacked_allocator;
+mod segtree_allocator;
 mod bitmap_vector_allocator;
 
 /// 分配器：固定容量，每次分配 / 回收一个元素（页面）
@@ -25,10 +26,12 @@ pub trait VectorAllocator {
     fn dealloc(&mut self, start: usize, size: usize, align: usize);
 }
 
-pub use stacked_allocator::StackedAllocator;
+pub use stacked_allocator::StackedAllocator;     // 栈式   单个页面分配
+pub use segtree_allocator::SegmentTreeAllocator; // 线段树 单个页面分配
 pub use bitmap_vector_allocator::BitmapVectorAllocator;
+
 
 /// 默认使用的分配器
 pub type AllocatorImpl = StackedAllocator;
-
+//pub type AllocatorImpl = SegmentTreeAllocator;
 pub type VectorAllocatorImpl = BitmapVectorAllocator;
