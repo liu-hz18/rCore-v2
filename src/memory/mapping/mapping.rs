@@ -15,13 +15,14 @@ use core::cmp::min;
 use core::ptr::slice_from_raw_parts_mut;
 
 #[derive(Default)]
-/// 某个线程的内存映射关系
+/// 某个线程/进程的内存映射关系
+/// 页表也是需要我们去分配页面来存储的。
 pub struct Mapping {
-    /// 保存所有使用到的页表
+    /// 保存所有页表所使用到的页面
     page_tables: Vec<PageTableTracker>,
     /// 根页表的物理页号
     root_ppn: PhysicalPageNumber,
-    /// 所有分配的物理页面映射信息
+    /// 所有分配的物理页面映射信息，存放了进程所用到的页面。
     mapped_pairs: VecDeque<(VirtualPageNumber, FrameTracker)>,
 }
 

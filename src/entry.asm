@@ -19,7 +19,7 @@ _start:
     li t1, (8 << 60)
     or t0, t0, t1
     # 写入 satp 并更新 TLB
-    csrw satp, t0
+    csrw satp, t0 # 页表启用了，之后就使用虚拟映射，但是此时需要照常执行pc, 所以需要一小段的恒等映射。
     sfence.vma
 
     # 加载栈地址
@@ -28,6 +28,7 @@ _start:
     # 跳转至 rust_main
     lui t0, %hi(rust_main)
     addi t0, t0, %lo(rust_main)
+    # 上面的 rust_main 实际上就是 0xffff_ffff_8020_0000，页表已经启用
     jr t0 # 我们的内核运行环境设置完成了，正式进入内核。
     jr x0 # 作为lab-1的暂时代码，移除rust_main中的panic!，使得程序返回到这里，之后跳转到0地址，引起LoadFault. 打印SUCCESS!
 
@@ -46,15 +47,20 @@ boot_stack_top:
     .section .data
     .align 12
 boot_page_table:
+    # boot_page_table是用二进制表示的根页表，其中包含两个 1GB 大页，
+    # 分别是将虚拟地址 0x8000_0000 至 0xc000_0000 映射到物理地址 0x8000_0000 至 0xc000_0000，
+    # 以及将虚拟地址 0xffff_ffff_8000_0000 至 0xffff_ffff_c000_0000 映射到物理地址 0x8000_0000 至 0xc000_0000。
     .quad 0
     .quad 0
     # 第 2 项：0x8000_0000 -> 0x8000_0000，0xcf 表示 VRWXAD 均为 1
     # 这里映射没有改变，因为在跳转到 rust_main 之前（即 jr t0）之前，PC 的值都还是 0x802xxxxx 这样的地址，即使是写入了 satp 寄存器，但是 PC 的地址不会变。
     # 为了执行这段中间的尴尬的代码，我们在页表里面也需要加入这段代码的地址的映射。
     # 跳转之后就没有问题了，因为 rust_main 这个符号本身是高虚拟地址（这点在 linker script 里面已经体现了）
+    # （低地址的恒等映射）则保证程序替换页表后的短暂时间内，pc 仍然可以顺着低地址去执行内存中的指令。
     .quad (0x80000 << 10) | 0xcf
     .zero 507 * 8
-    # 个页表只是启动时的一个简单页表，或者我们可以叫它“内核初始映射”
+    # 为了让程序能够正确跳转至高地址的 rust_main(0xffff_ffff_8020_0000 in linker.ld)，我们需要在 entry.asm 中先应用内核重映射，即将高地址映射到低地址。但我们不可能在替换页表的同时修改 pc，此时 pc 仍然处于低地址。
+    # 这个页表只是启动时的一个简单页表，或者我们可以叫它“内核初始映射”
     # 1GB 的一个大页
     # 第 510 项：0xffff_ffff_8000_0000 -> 0x8000_0000，0xcf 表示 VRWXAD 均为 1
     # 510 的二进制是要索引虚拟地址的 VPN_3
