@@ -11,11 +11,18 @@ pub mod heap;
 pub mod config;
 pub mod frame;
 pub mod range;
+pub mod mapping;
 
 /// 一个缩写，模块中一些函数会使用
 pub type MemoryResult<T> = Result<T, &'static str>;
 
-pub use {address::*, config::*, frame::FRAME_ALLOCATOR, range::Range};
+pub use {
+    address::*, 
+    config::*, 
+    frame::FRAME_ALLOCATOR, 
+    range::Range,
+    mapping::{Flags, MapType, MemorySet, Segment},
+};
 
 
 /// 初始化内存相关的子模块

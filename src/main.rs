@@ -143,8 +143,8 @@ global_asm!(include_str!("entry.asm"));
 // Step 3.3 内核重映射
 // 各个段之间的访问权限是不同的。在现在粗糙的映射下，我们甚至可以修改内核 .text 段的代码。因为我们通过一个标志位 W 为 1 的页表项完成映射。
 // 我们考虑对这些段分别进行重映射，使得他们的访问权限被正确设置。
-// 封装内存段
-// 
+// 封装内存段 Segment
+// 线性映射出现在内核空间中. 而为了支持每个用户进程看到的虚拟空间是一样的，我们不能全都用线性映射.
 
 /// Rust 的入口函数
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
@@ -156,42 +156,11 @@ pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，�
     interrupt::init();
     memory::init();
 
-    // 注意这里的 KERNEL_END_ADDRESS 为 ref 类型，需要加 *
-    println!("END ADDR of KERNEL: {}", *memory::config::KERNEL_END_ADDRESS); // output: `END ADDR of KERNEL: PhysicalAddress(0x80a1cba0)`
-
-     // 物理页分配
-    for _ in 0..2 {
-        // FRAME_ALLOCATOR: Mutex<FrameAllocator< AllocatorImpl >>, AllocatorImpl是一个Trait
-        let frame_0 = match memory::frame::FRAME_ALLOCATOR.lock().alloc() { // 一次分配 1 个页
-            Result::Ok(frame_tracker) => frame_tracker,
-            Result::Err(err) => panic!("{}", err)
-        };
-        // frame_0, FRAME_ALLOCATOR unlocked.
-        let frame_1 = match memory::frame::FRAME_ALLOCATOR.lock().alloc() { // 即便取消frame_1的块，也不会死锁，frame_tracker生命期和for{}是一样的
-            Result::Ok(frame_tracker) => frame_tracker,
-            Result::Err(err) => panic!("{}", err)
-        };
-        // frame_1, FRAME_ALLOCATOR unlocked.
-        println!("{} and {}", frame_0.address(), frame_1.address());
-        // output: `PhysicalAddress(0x80a1e000) and PhysicalAddress(0x80a1f000)`
-        // 我们可以看到 frame_0 和 frame_1 会被自动析构然后回收，第二次又分配同样的地址。
-        // scope end, frame_tracker Dropped here. 很奇怪，这时 frame_tracker 的 lifetime 和 for {} 的scope一样。
-        // 一定程度上反映了rust生命期的设计缺陷。
-    }
-
-    // 语法上存在设计缺陷：
-    // 这里的 frame_tracker 变量会在 match 语法里面析构。但是析构的时候，外层的 lock() 函数还没有释放锁，这样写会导致死锁。
-    // match memory::frame::FRAME_ALLOCATOR.lock().alloc() {
-    //     Result::Ok(frame_tracker) => frame_tracker,
-    //     Result::Err(err) => panic!("{}", err)
-    // // scope end, frame_tracker Dropped here. but need FRAME_ALLOCATOR to be unlocked.
-    // };
-    // // FRAME_ALLOCATOR unlocked here. but will never reached here due to the deadlock.
+    let remap = memory::mapping::MemorySet::new_kernel().unwrap();
+    remap.activate();
+    // 此时所有逻辑已经建立在了新构建的页表上，而不是那个粗糙的 boot_page_table 了
+    // boot_page_table 并非没有用，它为我们构建重映射提供了支持，但终究我们会用更精细的页表和映射代替了它，实现了更细致的管理和安全性。
+    println!("kernel remapped");
 
     panic!("end of rust_main")
-    // 如果最后不是panic，而是让rust_main返回，那么会回到 entry.asm 中。
-    // 但是，entry.asm 并没有在后面写任何指令，这意味着程序将接着向后执行内存中的任何指令。
-    // $ rust-objdump -d -S target/riscv64imac-unknown-none-elf/debug/os | less
-    // 可以看到 _start 只有短短三条指令，而后面则放着许多 Rust 库中的函数。
-    // 这些指令可能导致程序进入循环，或崩溃退出。
 }

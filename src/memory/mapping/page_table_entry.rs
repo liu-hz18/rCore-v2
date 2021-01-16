@@ -1,3 +1,21 @@
+//! 页表项 [`PageTableEntry`]
+//!
+//! # RISC-V 64 中的页表项结构
+//! 每个页表项长度为 64 位，每个页面大小是 4KB，即每个页面能存下 2^9=512 个页表项。
+//! 每一个页表存放 512 个页表项，说明每一级页表使用 9 位来标记 VPN。
+//!
+//! # RISC-V 64 两种页表组织方式：Sv39 和 Sv48
+//! 64 位能够表示的空间大小太大了，因此现有的 64 位硬件实际上都不会支持 64 位的地址空间。
+//!
+//! RISC-V 64 现有两种地址长度：39 位和 48 位，其中 Sv39 的虚拟地址就包括三级页表和页内偏移。
+//! `3 * 9 + 12 = 39`
+//!
+//! 我们使用 Sv39，Sv48 同理，只是它具有四级页表。
+
+use crate::memory::address::*;
+use bit_field::BitField;
+use bitflags::*;
+
 /// Sv39 结构的页表项
 /// 其实就是对一个 usize（8 字节）的封装，同时我们可以用刚刚加入的 bit 级别操作的 crate 对其实现一些取出特定段的方便后续实现的函数
 #[derive(Copy, Clone, Default)]
@@ -31,6 +49,10 @@ impl PageTableEntry {
                 .set_bits(PAGE_NUMBER_RANGE, 0);
         }
     }
+    /// 清除
+    pub fn clear(&mut self) {
+        self.0 = 0;
+    }
     /// 获取页号
     pub fn page_number(&self) -> PhysicalPageNumber {
         PhysicalPageNumber::from(self.0.get_bits(10..54))
@@ -46,6 +68,13 @@ impl PageTableEntry {
     /// 是否为空（可能非空也非 Valid）
     pub fn is_empty(&self) -> bool {
         self.0 == 0
+    }
+    /// 是否指向下一级（RWX 全为0）
+    pub fn has_next_level(&self) -> bool {
+        let flags = self.flags();
+        !(flags.contains(Flags::READABLE)
+            || flags.contains(Flags::WRITABLE)
+            || flags.contains(Flags::EXECUTABLE))
     }
 }
 
