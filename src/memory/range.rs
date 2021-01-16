@@ -7,7 +7,7 @@ pub struct Range<T: From<usize> + Into<usize> + Copy> {
     pub end: T,
 }
 
-/// 创建一个区间
+/// 创建一个区间，单位是 一个页面
 impl<T: From<usize> + Into<usize> + Copy, U: Into<T>> From<core::ops::Range<U>> for Range<T> {
     fn from(range: core::ops::Range<U>) -> Self {
         Self {

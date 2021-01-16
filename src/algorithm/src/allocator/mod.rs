@@ -3,7 +3,7 @@
 mod stacked_allocator;
 mod bitmap_vector_allocator;
 
-/// 分配器：固定容量，每次分配 / 回收一个元素
+/// 分配器：固定容量，每次分配 / 回收一个元素（页面）
 pub trait Allocator {
     /// 给定容量，创建分配器
     fn new(capacity: usize) -> Self;

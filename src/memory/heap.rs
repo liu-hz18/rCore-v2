@@ -1,13 +1,18 @@
 //! 实现操作系统动态内存分配所用的堆
 //!
 //! 基于 `buddy_system_allocator` crate，致敬杰哥。
-use super::config::KERNEL_HEAP_SIZE;
+use super::config::KERNEL_HEAP_SIZE; // 0x80_0000
 use buddy_system_allocator::LockedHeap;
 
 /// 进行动态内存分配所用的堆空间
 /// 
-/// 大小为 [`KERNEL_HEAP_SIZE`]  
+/// 大小为 [`KERNEL_HEAP_SIZE`] , 类型为[u8; KERNEL_HEAP_SIZE] 
 /// 这段空间编译后会被放在操作系统执行程序的 bss 段
+/// 我们具有随意使用内存空间的权力，因此我们可以在内存中随意划一段空间，然后用相应的算法来实现一个堆。
+/// 但是，在代码中用全局变量来表示堆并将其放在 .bss 字段，是一个很简单的实现：
+///   这样堆空间就包含在内核的二进制数据之中了，而自 KERNEL_END_ADDRESS 以后的空间就都可以给进程使用。
+/// 注意堆空间只能用基本数据类型, [u8], 不能用Vec
+/// 因为 Vec 的内存分配依赖于 操作系统，而操作系统又会使用 Vec 分配堆内存，这样程序就会陷入一个循环。(依然可以编译)
 static mut HEAP_SPACE: [u8; KERNEL_HEAP_SIZE] = [0; KERNEL_HEAP_SIZE];
 
 /// 堆，动态内存分配器

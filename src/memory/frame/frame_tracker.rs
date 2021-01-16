@@ -23,11 +23,12 @@ use crate::memory::{address::*, FRAME_ALLOCATOR};
 // 我们需要实现一个分配器可以分配和回收物理页
 // 注意到，物理页实际上是一块连续的内存区域，这里我们只是把 内存区域的【起始】物理地址 封装到了一个 FrameTracker 里面。
 
-pub struct FrameTracker(pub(super) PhysicalPageNumber);
+pub struct FrameTracker(pub(super) PhysicalPageNumber); // 单位是 页号
 
-// 我们设计的初衷是分配器分配给我们 FrameTracker 作为一个帧的标识，而随着不再需要这个物理页，我们需要回收，
+// 我们设计的初衷是分配器分配给我们 FrameTracker 作为*一个帧*的标识，而随着不再需要这个物理页，我们需要回收，
 // 我们利用 Rust 的 drop 机制在析构的时候自动实现回收。
-impl FrameTracker { // 不是内存中4KB的Frame！
+// 每个帧都有一个 FrameTracker !
+impl FrameTracker { // 不是内存中4KB的Frame！而只是监督被分配出的一个物理页
     /// 帧的物理地址
     pub fn address(&self) -> PhysicalAddress {
         self.0.into()

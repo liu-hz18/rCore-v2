@@ -139,7 +139,8 @@ pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，�
 
      // 物理页分配
     for _ in 0..2 {
-        let frame_0 = match memory::frame::FRAME_ALLOCATOR.lock().alloc() {
+        // FRAME_ALLOCATOR: Mutex<FrameAllocator< AllocatorImpl >>, AllocatorImpl是一个Trait
+        let frame_0 = match memory::frame::FRAME_ALLOCATOR.lock().alloc() { // 一次分配 1 个页
             Result::Ok(frame_tracker) => frame_tracker,
             Result::Err(err) => panic!("{}", err)
         };
