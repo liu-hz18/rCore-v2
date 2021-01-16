@@ -19,12 +19,20 @@
 //! - `#![feature(panic_info_message)]`  
 //!   panic! 时，获取其中的信息并打印
 #![feature(panic_info_message)]
+//! - `#![feature(alloc_error_handler)]`
+//!   我们使用了一个全局动态内存分配器，以实现原本标准库中的堆内存分配。
+//!   而语言要求我们同时实现一个错误回调，这里我们直接 panic
+#![feature(alloc_error_handler)]
+
 
 #[macro_use]
 mod console;
 mod panic;
 mod sbi;
 mod interrupt;
+mod memory;
+
+extern crate alloc;
 
 // 汇编编写的程序入口，具体见该文件 entry.asm
 global_asm!(include_str!("entry.asm"));
@@ -100,6 +108,11 @@ global_asm!(include_str!("entry.asm"));
 // > 时钟中断（Timer Interrupt），对应 STIE 和 STIP
 // > 外部中断（External Interrupt），对应 SEIE 和 SEIP
 
+// Step 2.1 动态内存分配
+// 为了在我们的内核中支持动态内存分配，在 Rust 语言中，我们需要实现 Trait GlobalAlloc，将这个类实例化，并使用语义项 #[global_allocator] 进行标记。
+// 这样的话，编译器就会知道如何使用我们提供的内存分配函数进行动态内存分配。
+// 我们的需求是分配一块连续的、大小至少为 size 字节的虚拟内存，且对齐要求为 align 
+// 在这里使用 Buddy System 来实现这件事情。
 
 /// Rust 的入口函数
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
@@ -109,12 +122,25 @@ pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，�
     println!("Hello rCore-Tutorial!");
     // 初始化各种模块, 比如设置中断入口为 __interrupt, 以及开启时钟中断
     interrupt::init();
-    // 在 main 函数中主动使用 ebreak 来触发一个中断。
-    unsafe {
-        llvm_asm!("ebreak"::::"volatile"); // CPU负责跳到中断入口 __interrupt，保存上下文，之后跳到handle_interrupt(), 返回后 __restore，最后返回到内核态, 调用前后sp不变
+    memory::init();
+
+    // 动态内存分配测试
+    use alloc::boxed::Box;
+    use alloc::vec::Vec;
+    let v = Box::new(5);
+    assert_eq!(*v, 5);
+    core::mem::drop(v);
+
+    let mut vec = Vec::new();
+    for i in 0..10000 {
+        vec.push(i);
     }
-    // unreachable!();
-    loop{}
+    assert_eq!(vec.len(), 10000);
+    for (i, value) in vec.into_iter().enumerate() {
+        assert_eq!(value, i);
+    }
+    println!("heap test passed");
+
     panic!("end of rust_main")
     // 如果最后不是panic，而是让rust_main返回，那么会回到 entry.asm 中。
     // 但是，entry.asm 并没有在后面写任何指令，这意味着程序将接着向后执行内存中的任何指令。

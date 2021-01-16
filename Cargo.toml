@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 riscv = { git = "https://github.com/rcore-os/riscv", features = ["inline-asm"] }
+buddy_system_allocator = "0.6.0"
 
 # panic 的处理策略设为直接终止，也就是直接调用我们的 panic_handler 而不是先进行 堆栈展开 等处理再调用。因为我们没有实现堆栈展开的功能
 [profile.dev]
