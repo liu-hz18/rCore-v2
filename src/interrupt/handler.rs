@@ -1,6 +1,10 @@
 // 为了让硬件能够找到我们编写的 __interrupt 入口，在操作系统初始化时，需要将其写入 stvec 寄存器中
 use super::context::Context;
-use riscv::register::{stvec, scause::Scause};
+use super::timer;
+use riscv::register::{
+    stvec,
+    scause::{Exception, Interrupt, Scause, Trap}
+};
 
 global_asm!(include_str!("./interrupt.asm"));
 
@@ -25,5 +29,40 @@ pub fn init() {
 /// 具体的中断类型需要根据 scause 来推断，然后分别处理
 #[no_mangle]
 pub fn handle_interrupt(context: &mut Context, scause: Scause, stval: usize) {
-    panic!("Interrupted: {:?}", scause.cause()); // panic之后就退出了，没有返回
+    // 可以通过 Debug 来查看发生了什么中断
+    // println!("{:x?}", scause.cause());
+    match scause.cause() {
+        // 断点中断（ebreak）
+        Trap::Exception(Exception::Breakpoint) => breakpoint(context),
+        // 时钟中断
+        Trap::Interrupt(Interrupt::SupervisorTimer) => supervisor_timer(context),
+        // 其他情况，终止当前线程
+        _ => fault(context, scause, stval),
+    }
+    // panic!("Interrupted: {:?}", scause.cause()); // panic之后就退出了，没有返回
+}
+
+/// 处理 ebreak 断点
+/// 
+/// 继续执行，其中 `sepc` 增加 2 字节，以跳过当前这条 `ebreak` 指令
+fn breakpoint(context: &mut Context) {
+    println!("Breakpoint at 0x{:x}", context.sepc);
+    context.sepc += 2;
+}
+
+/// 处理时钟中断
+/// 
+/// 目前只会在 [`timer`] 模块中进行计数，同时设置下一次时钟中断
+fn supervisor_timer(_: &Context) {
+    timer::tick();
+}
+
+/// 出现未能解决的异常
+fn fault(context: &mut Context, scause: Scause, stval: usize) {
+    panic!(
+        "Unresolved interrupt: {:?}\n{:x?}\nstval: {:x}",
+        scause.cause(),
+        context,
+        stval
+    );
 }

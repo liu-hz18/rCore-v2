@@ -94,6 +94,11 @@ global_asm!(include_str!("entry.asm"));
 // ebreak: 触发一个断点。
 // mret: 从机器态返回内核态，同时将 pc 的值设置为 mepc。
 
+// sie 和 sip 寄存器分别保存不同中断种类的使能和触发记录
+// RISC-V 中将中断分为三种：
+// > 软件中断（Software Interrupt），对应 SSIE 和 SSIP
+// > 时钟中断（Timer Interrupt），对应 STIE 和 STIP
+// > 外部中断（External Interrupt），对应 SEIE 和 SEIP
 
 
 /// Rust 的入口函数
@@ -101,14 +106,14 @@ global_asm!(include_str!("entry.asm"));
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
 #[no_mangle]
 pub extern "C" fn rust_main() -> ! {
+    println!("Hello rCore-Tutorial!");
     // 初始化各种模块
     interrupt::init();
-    println!("Hello rCore-Tutorial!");
     // 在 main 函数中主动使用 ebreak 来触发一个中断。
     unsafe {
         llvm_asm!("ebreak"::::"volatile");
-    };
-    unreachable!();
-
+    }
+    // unreachable!();
+    loop{}
     //panic!("end of rust_main")
 }

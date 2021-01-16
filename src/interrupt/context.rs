@@ -13,6 +13,6 @@ use riscv::register::{sstatus::Sstatus, scause::Scause};
 #[derive(Debug)]
 pub struct Context {
     pub x: [usize; 32],     // 32 个通用寄存器
-    pub sstatus: Sstatus,
-    pub sepc: usize
+    pub sstatus: Sstatus,   // 具有许多状态位，控制全局中断使能等。
+    pub sepc: usize         // Exception Program Counter, 用来记录触发中断的指令的地址。
 }

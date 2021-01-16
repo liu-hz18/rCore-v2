@@ -54,7 +54,7 @@ __interrupt:
     # context: &mut Context
     mv      a0, sp
     # scause: Scause
-    csrr    a1, scause
+    csrr    a1, scause # scause和stval作为临时变量，而不是上下文
     # stval: usize
     csrr    a2, stval
     jal  handle_interrupt
