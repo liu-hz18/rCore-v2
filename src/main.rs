@@ -105,7 +105,7 @@ global_asm!(include_str!("entry.asm"));
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
 #[no_mangle]
-pub extern "C" fn rust_main() /* -> ! */ { // 如果最后不是死循环或panic!，那么这个函数有返回值，所以就要去掉 -> !
+pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，那么这个函数有返回值，所以就要去掉 -> !
     println!("Hello rCore-Tutorial!");
     // 初始化各种模块, 比如设置中断入口为 __interrupt, 以及开启时钟中断
     interrupt::init();
@@ -114,8 +114,8 @@ pub extern "C" fn rust_main() /* -> ! */ { // 如果最后不是死循环或pani
         llvm_asm!("ebreak"::::"volatile"); // CPU负责跳到中断入口 __interrupt，保存上下文，之后跳到handle_interrupt(), 返回后 __restore，最后返回到内核态, 调用前后sp不变
     }
     // unreachable!();
-    // loop{}
-    // panic!("end of rust_main")
+    loop{}
+    panic!("end of rust_main")
     // 如果最后不是panic，而是让rust_main返回，那么会回到 entry.asm 中。
     // 但是，entry.asm 并没有在后面写任何指令，这意味着程序将接着向后执行内存中的任何指令。
     // $ rust-objdump -d -S target/riscv64imac-unknown-none-elf/debug/os | less
