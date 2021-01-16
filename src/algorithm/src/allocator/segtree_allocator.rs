@@ -34,7 +34,7 @@ impl SegmentTreeAllocator {
 
 impl Allocator for SegmentTreeAllocator {
     fn new(capacity: usize) -> Self {
-        let leaf_count = capacity.next_power_of_two(); // 扩展到2^n
+        let leaf_count = capacity.next_power_of_two(); // 扩展到2^n, 返回 min 2^k s.t. 2^k>v-1
         let mut tree = vec![false; 2 * leaf_count]; // 2叉树开2倍内存
         for i in capacity..leaf_count {
             tree[leaf_count + i] = false; // 所有叶子节点置0, 表示空闲

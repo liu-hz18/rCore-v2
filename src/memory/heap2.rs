@@ -1,7 +1,7 @@
 //! 如果想要尝试自己实现动态分配器，使用此文件替换 heap.rs
 //!
 //! 具体分配算法需要在 algorithm::allocator 里面实现，
-//! 这里将其中的 VectorAllocator 接入 GlobalAlloc，作为全局分配器
+//! 这里将其中的 VectorAllocator 接入 GlobalAlloc, 作为全局分配器
 
 use super::config::KERNEL_HEAP_SIZE;
 use algorithm::{VectorAllocator, VectorAllocatorImpl};
@@ -11,7 +11,11 @@ use core::cell::UnsafeCell;
 ///
 /// 大小为 [`KERNEL_HEAP_SIZE`]
 /// 这段空间编译后会被放在操作系统执行程序的 bss 段
-static mut HEAP_SPACE: [u8; KERNEL_HEAP_SIZE] = [0; KERNEL_HEAP_SIZE]; // 静态分配的空间(依然在.bss段)，用于动态分配
+static mut HEAP_SPACE: [u8; KERNEL_HEAP_SIZE] = [0; KERNEL_HEAP_SIZE]; 
+// 静态分配的空间(依然在.bss段)，用于动态分配
+
+// 另一种思路:堆也可以动态分配自己
+// 分配器最初必须具有一个节点的静态空间。而每当它仅剩一个节点空间时，都可以用它来为自己分配一块更大的空间。如此，就实现了分配器动态分配自己。使用动态分配就可以减少空间浪费。
 
 #[global_allocator]
 static HEAP: Heap = Heap(UnsafeCell::new(None));
