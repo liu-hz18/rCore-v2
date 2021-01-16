@@ -1,0 +1,29 @@
+// 为了让硬件能够找到我们编写的 __interrupt 入口，在操作系统初始化时，需要将其写入 stvec 寄存器中
+use super::context::Context;
+use riscv::register::{stvec, scause::Scause};
+
+global_asm!(include_str!("./interrupt.asm"));
+
+/// 初始化中断处理
+///
+/// 把中断入口 `__interrupt` 写入 `stvec` 中，并且开启中断使能
+pub fn init() {
+    unsafe {
+        extern "C" {
+            /// `interrupt.asm` 中的中断入口
+            fn __interrupt();
+        }
+        // 使用 Direct 模式，将中断入口设置为 `__interrupt`
+        stvec::write(__interrupt as usize, stvec::TrapMode::Direct);
+    }
+}
+
+/// 中断的处理入口
+/// 
+/// `interrupt.asm` 首先保存寄存器至 Context，其作为参数和 scause 以及 stval 一并传入此函数
+/// 参数的传入是通过汇编实现的，在 /interrupt.asm 中，占用a0, a1, a2寄存器，其中a0是个指针(sp), 对应&mut Context
+/// 具体的中断类型需要根据 scause 来推断，然后分别处理
+#[no_mangle]
+pub fn handle_interrupt(context: &mut Context, scause: Scause, stval: usize) {
+    panic!("Interrupted: {:?}", scause.cause()); // panic之后就退出了，没有返回
+}

@@ -24,7 +24,7 @@
 mod console;
 mod panic;
 mod sbi;
-
+mod interrupt;
 
 // 汇编编写的程序入口，具体见该文件 entry.asm
 global_asm!(include_str!("entry.asm"));
@@ -94,15 +94,21 @@ global_asm!(include_str!("entry.asm"));
 // ebreak: 触发一个断点。
 // mret: 从机器态返回内核态，同时将 pc 的值设置为 mepc。
 
-// 在处理中断之前，必须要保存所有可能被修改的寄存器，并且在处理完成后恢复。
-// 保存所有通用寄存器，sepc、scause 和 stval 这三个会被硬件自动写入的 CSR 寄存器，以及 sstatus (因为中断可能会涉及到权限的切换，以及中断的开关，这些都会修改 sstatus。)
-// scause 以及 stval 将不会放在 Context 而仅仅被看做一个临时的变量
+
 
 /// Rust 的入口函数
 ///
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
 #[no_mangle]
 pub extern "C" fn rust_main() -> ! {
+    // 初始化各种模块
+    interrupt::init();
     println!("Hello rCore-Tutorial!");
-    panic!("end of rust_main")
+    // 在 main 函数中主动使用 ebreak 来触发一个中断。
+    unsafe {
+        llvm_asm!("ebreak"::::"volatile");
+    };
+    unreachable!();
+
+    //panic!("end of rust_main")
 }

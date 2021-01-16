@@ -1,4 +1,4 @@
-
+#![warn(unused_imports)]
 use riscv::register::{sstatus::Sstatus, scause::Scause};
 
 // 中断处理过程中需要保存的上下文(Context)向量

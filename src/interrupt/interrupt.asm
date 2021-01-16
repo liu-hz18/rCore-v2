@@ -50,7 +50,7 @@ __interrupt:
     SAVE    s1, 32
     SAVE    s2, 33
 
-    # 调用 handle_interrupt, 传入参数
+    # 调用 handle_interrupt, 传入参数, 通过汇编实现
     # context: &mut Context
     mv      a0, sp
     # scause: Scause
