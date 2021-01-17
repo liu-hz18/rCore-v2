@@ -1,7 +1,7 @@
 //! 预约和处理时钟中断
 // 时钟中断也需要我们在初始化操作系统时开启, 我们同样只需使用 riscv 库中提供的接口即可。
 use crate::sbi::set_timer;
-use riscv::register::{time, sie, sstatus};
+use riscv::register::{time, sie};
 
 // sstatus 寄存器中的 SIE 位决定中断是否能够打断 supervisor 线程
 // 在这里我们需要允许时钟中断打断 内核态线程
@@ -11,12 +11,13 @@ use riscv::register::{time, sie, sstatus};
 /// 初始化时钟中断
 /// 
 /// 开启时钟中断使能，并且预约第一次时钟中断
+/// 我们会在线程开始运行时开启中断，而在操作系统初始化的过程中是不应该有中断的, 所以删去sie的设置
 pub fn init() {
     unsafe {
         // 开启 STIE，允许时钟中断
         sie::set_stimer();
-        // 开启 SIE（不是 sie 寄存器），允许内核态被中断打断
-        sstatus::set_sie(); // 开启 sstatus 寄存器中的 SIE 位，与 sie 寄存器无关
+        // （删除）开启 SIE（不是 sie 寄存器），允许内核态被中断打断
+        // sstatus::set_sie(); // 开启 sstatus 寄存器中的 SIE 位，与 sie 寄存器无关
     }
     // 设置下一次时钟中断
     set_next_timeout();
