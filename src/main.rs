@@ -31,8 +31,12 @@ mod panic;
 mod sbi;
 mod interrupt;
 mod memory;
+mod process;
 
 extern crate alloc;
+
+use process::*;
+use alloc::sync::Arc;
 
 // 汇编编写的程序入口，具体见该文件 entry.asm
 global_asm!(include_str!("entry.asm"));
@@ -154,6 +158,65 @@ global_asm!(include_str!("entry.asm"));
 // Thinking: 假设某进程需要虚拟地址 A 到物理地址 B 的映射，这需要操作系统来完成。那么操作系统在建立映射时有没有访问 B？如果有，它是怎么在还没有映射的情况下访问 B 的呢？
 // 建立映射不需要访问 B，而只需要操作页表即可。不过，通常程序都会需要操作系统建立映射的同时向页面中加载一些数据。此时，尽管 A→B 的映射尚不存在，因为我们将整个可用物理内存都建立了内核映射，所以操作系统仍然可以通过线性偏移量来访问到 B。
 
+// Step 4.1 线程和进程
+// 进程得到了操作系统提供的资源：程序的代码、数据段被加载到内存中，程序所需的虚拟内存空间被真正构建出来。
+// “正在运行”的动态特性: 为了能够进行函数调用，我们还需要运行栈（Stack）。
+// 我们通常将“正在运行”的动态特性从进程中剥离出来，这样的一个借助 CPU 和栈的执行流，我们称之为线程 (Thread) 。一个进程可以有多个线程，也可以如传统进程一样只有一个线程。
+// 进程虽然仍是代表一个正在运行的程序，但是其主要功能是作为*资源的分配单位*，管理页表、文件、网络等资源。
+// 而一个进程的多个线程则共享这些资源，专注于执行，从而作为*执行的调度单位*, 这些线程为了可以独立运行，有自己的栈（会放在相同地址空间的不同位置），CPU 也会以它们这些线程为一个基本调度单位。
+// *线程执行上下文*与前面提到的*中断上下文*是不同的概念
+// 内核栈：除了线程运行必须有的运行栈，中断处理也必须有一个单独的栈。内核栈并没有存储在线程信息中.
+
+// Step 4.2 创建线程
+// 一个线程要开始运行，需要这些准备工作
+// 1. 建立页表映射. 映射空间包括: 线程所执行的一段指令, 线程执行栈, 操作系统的部分内存空间
+// 2. 设置起始执行的地址
+// 3. 初始化各种寄存器，比如 sp
+// 4. 设置一些执行参数（例如 argc 和 argv等 ）
+// 映射操作系统内存空间是为了: 当发生中断时，需要跳转到 stvec 所指向的中断处理过程。如果操作系统的内存不在页表之中，将无法处理中断。
+// 为了实现简便，我们会为每个进程的页表映射全部操作系统的内存。而由于这些页表都标记为内核权限（即 U 位为 0），也不必担心用户线程可以随意访问。
+// 内核栈
+// 对于一个用户线程而言，它在用户态运行时用的是位于用户空间的用户栈。而它在用户态运行中如果触发中断，sp 指针指向的是用户空间的某地址，但此时 RISC-V CPU 会切换到内核态继续执行，就不能再用这个 sp 指针指向的用户空间地址了。
+// 我们需要为 sp 指针准备好一个专门用于 在内核态执行函数 的内核栈
+// 我们需要提前准备好内核栈，当线程发生中断时可用来存储线程的 Context
+// 不是每个线程都需要一个独立的内核栈，因为内核栈只会在中断时使用，而中断结束后就不再使用。在只有一个 CPU 的情况下，不会有两个线程同时出现中断，所以我们只需要实现一个共用的内核栈就可以了。
+// 每个线程都需要能够在中断时第一时间找到内核栈的地址。这时，所有通用寄存器的值都无法预知，也无法从某个变量来加载地址。为此，我们将内核栈的地址存放到内核态使用的特权寄存器 sscratch 中。这个寄存器只能在内核态访问，这样在中断发生时，就可以安全地找到内核栈了。
+
+
+/// 内核线程需要调用这个函数来退出
+/// 内核线程将自己标记为“已结束”，同时触发一个普通的异常 ebreak
+/// 此时操作系统观察到线程的标记，便将其终止。
+/// 然后，我们将这个函数作为内核线程的 ra，使得它执行的函数完成后便执行 kernel_thread_exit()
+fn kernel_thread_exit() {
+    // 当前线程标记为结束
+    PROCESSOR.lock().current_thread().as_ref().inner().dead = true;
+    // 制造一个中断 ebreak 来交给操作系统处理
+    unsafe { llvm_asm!("ebreak" :::: "volatile") };
+}
+
+/// 创建一个内核进程
+pub fn create_kernel_thread(
+    process: Arc<Process>,
+    entry_point: usize,
+    arguments: Option<&[usize]>,
+) -> Arc<Thread> {
+    // 创建线程
+    let thread = Thread::new(process, entry_point, arguments).unwrap();
+    // 设置线程的返回地址为 kernel_thread_exit
+    thread.as_ref().inner().context.as_mut().unwrap() // 对Thread::ThreadInner::Context成员设置ra
+        .set_ra(kernel_thread_exit as usize);
+    thread
+}
+
+fn sample_process(message: usize) {
+    println!("hello from kernel thread {}", message);
+    for i in 0..10000000{
+        if i%1000000 == 0 {
+            println!("Hello world from user mode program!{}",i);
+        }
+    }
+}
+
 /// Rust 的入口函数
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
@@ -161,14 +224,34 @@ global_asm!(include_str!("entry.asm"));
 pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，那么这个函数有返回值，所以就要去掉 -> !
     println!("Hello rCore-Tutorial!");
     // 初始化各种模块, 比如设置中断入口为 __interrupt, 以及开启时钟中断
-    interrupt::init();
     memory::init();
+    interrupt::init();
+    //println!("Finish interrupt initialization!");
+    
+    println!("Finish initialization!");
+    {
+        let mut processor = PROCESSOR.lock();
+        // 创建一个内核进程
+        let kernel_process = Process::new_kernel().unwrap();
+        // 为这个进程创建多个线程，并设置入口均为 sample_process，而参数不同
+        for i in 1..9usize {
+            processor.add_thread(create_kernel_thread(
+                kernel_process.clone(),
+                sample_process as usize,
+                Some(&[i]),
+            ));
+        }
+    }
 
-    let remap = memory::mapping::MemorySet::new_kernel().unwrap();
-    remap.activate();
-    // 此时所有逻辑已经建立在了新构建的页表上，而不是那个粗糙的 boot_page_table 了
-    // boot_page_table 并非没有用，它为我们构建重映射提供了支持，但终究我们会用更精细的页表和映射代替了它，实现了更细致的管理和安全性。
-    println!("kernel remapped");
+    extern "C" {
+        fn __restore(context: usize); 
+    }
+    // 获取第一个线程的 Context，具体原理后面讲解
+    let context = PROCESSOR.lock().prepare_next_thread();
+    // 启动第一个线程，此时线程的 Context 在内核栈顶，由 __restore 恢复并跳转到 sepc 的位置(创建时设置为了entry_point:sample_process) 执行
+    // __restore 完成加载 内核栈顶 的Context, 并通过 sret 跳转到 sepc 指向的位置
+    unsafe { __restore(context as usize) }; // 我们直接调用的 __restore 并没有 ret 指令，甚至 ra 都会被 Context 中的数值直接覆盖。这意味着，一旦我们执行了 __restore(context)，程序就无法返回到调用它的位置了。
+    unreachable!();
 
-    panic!("end of rust_main")
+    //panic!("end of rust_main")
 }

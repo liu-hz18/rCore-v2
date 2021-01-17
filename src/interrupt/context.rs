@@ -1,7 +1,7 @@
 #![warn(unused_imports)]
 use core::fmt;
-use riscv::register::{sstatus::Sstatus};
-
+use core::mem::zeroed;
+use riscv::register::sstatus::{self, Sstatus, SPP::*};
 // 中断处理过程中需要保存的上下文(Context)向量
 
 // 在处理中断之前，必须要保存所有可能被修改的寄存器，并且在处理完成后恢复。
@@ -9,12 +9,95 @@ use riscv::register::{sstatus::Sstatus};
 // scause 以及 stval 将不会放在 Context 而仅仅被看做一个临时的变量
 // 为了状态的保存与恢复，我们可以先用栈上的一小段空间来把需要保存的全部通用寄存器和 CSR 寄存器保存在栈上，保存完之后在跳转到 Rust 编写的中断处理函数
 
-
+/// ### `#[repr(C)]` 属性
+/// 要求 struct 按照 C 语言的规则进行内存分布，否则 Rust 可能按照其他规则进行内存排布
 #[repr(C)] // 和C语言保持一致
+#[derive(Clone, Copy)]
 pub struct Context {
     pub x: [usize; 32],     // 32 个通用寄存器
     pub sstatus: Sstatus,   // 具有许多状态位，控制全局中断使能等。
     pub sepc: usize         // Exception Program Counter, 用来记录触发中断的指令的地址。
+}
+
+// status的标志位:
+// spp：中断前系统处于内核态（1）还是用户态（0）
+// sie：内核态是否允许中断。对用户态而言，无论 sie 取何值都开启中断. OS启动(初始化)时不能允许sie=1
+// spie：中断前是否开中断（用户态中断时可能 sie 为 0）
+
+/// 创建一个用 0 初始化的 Context
+///
+/// 这里使用 [`core::mem::zeroed()`] 来强行用全 0 初始化。
+/// 因为在一些类型中，0 数值可能不合法（例如引用），所以 [`zeroed()`] 是 unsafe 的
+impl Default for Context {
+    fn default() -> Self {
+        unsafe { zeroed() }
+    }
+}
+
+#[allow(unused)]
+impl Context {
+    /// 获取栈指针
+    pub fn sp(&self) -> usize {
+        self.x[2]
+    }
+
+    /// 设置栈指针
+    pub fn set_sp(&mut self, value: usize) -> &mut Self {
+        self.x[2] = value;
+        self
+    }
+
+    /// 获取返回地址
+    pub fn ra(&self) -> usize {
+        self.x[1]
+    }
+
+    /// 设置返回地址
+    pub fn set_ra(&mut self, value: usize) -> &mut Self {
+        self.x[1] = value;
+        self
+    }
+
+    /// 按照函数调用规则写入参数
+    ///
+    /// 没有考虑一些特殊情况，例如超过 8 个参数，或 struct 空间展开
+    pub fn set_arguments(&mut self, arguments: &[usize]) -> &mut Self {
+        assert!(arguments.len() <= 8);
+        self.x[10..(10 + arguments.len())].copy_from_slice(arguments);
+        self
+    }
+
+    /// 为线程构建初始 `Context`
+    pub fn new(
+        stack_top: usize,
+        entry_point: usize,
+        arguments: Option<&[usize]>,
+        is_user: bool,
+    ) -> Self {
+        let mut context = Self::default();
+
+        // 设置栈顶指针
+        context.set_sp(stack_top);
+        // 设置初始参数
+        if let Some(args) = arguments {
+            context.set_arguments(args);
+        }
+        // 设置入口地址
+        context.sepc = entry_point;
+
+        // 设置 sstatus
+        context.sstatus = sstatus::read();
+        if is_user {
+            context.sstatus.set_spp(User);
+        } else {
+            context.sstatus.set_spp(Supervisor);
+        }
+        // 这样设置 SPIE 位，使得替换 sstatus 后关闭中断，
+        // 而在 sret 到用户线程时开启中断。详见 SPIE 和 SIE 的定义
+        context.sstatus.set_spie(true);
+
+        context
+    }
 }
 
 const REG_NAMES: [&str; 32] = [
