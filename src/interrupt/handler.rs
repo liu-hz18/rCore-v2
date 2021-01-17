@@ -6,6 +6,8 @@ use riscv::register::{
     stvec, sie,
     scause::{Exception, Interrupt, Scause, Trap}
 };
+use crate::sbi::console_getchar;
+use crate::memory::*;
 
 global_asm!(include_str!("./interrupt.asm"));
 
@@ -22,7 +24,14 @@ pub fn init() {
         stvec::write(__interrupt as usize, stvec::TrapMode::Direct);
         // 开启外部中断使能
         sie::set_sext();
-
+        // 在 OpenSBI 中开启外部中断, 否则无法接收键盘输入!!! 但是需要先实现驱动模块!!!
+        // *PhysicalAddress(0x0c00_2080).deref_kernel() = 1u32 << 10;
+        // // 在 OpenSBI 中开启串口
+        // *PhysicalAddress(0x1000_0004).deref_kernel() = 0x0bu8;
+        // *PhysicalAddress(0x1000_0001).deref_kernel() = 0x01u8;
+        // // 其他一些外部中断相关魔数
+        // *PhysicalAddress(0x0C00_0028).deref_kernel() = 0x07u32;
+        // *PhysicalAddress(0x0C20_1000).deref_kernel() = 0u32;
     }
 }
 
@@ -56,7 +65,8 @@ pub fn handle_interrupt(context: &mut Context, scause: Scause, stval: usize) -> 
         Trap::Exception(Exception::LoadFault) => loadfault(context, stval),
         // 时钟中断
         Trap::Interrupt(Interrupt::SupervisorTimer) => supervisor_timer(context),
-        
+        // 外部中断（键盘输入）
+        Trap::Interrupt(Interrupt::SupervisorExternal) => supervisor_external(context),
         // 其他情况，终止当前线程
         _ => fault(context, scause, stval),
     }
@@ -92,6 +102,31 @@ fn loadfault(context: &Context, stval: usize) -> *mut Context {
     PROCESSOR.lock().kill_current_thread(); // 无法处理，杀死当前线程
     // 跳转到 PROCESSOR 调度的下一个线程
     PROCESSOR.lock().prepare_next_thread()
+}
+
+/// 处理外部中断，只实现了键盘输入
+/// !!! qemu特有的属性：需要按下 Ctrl + Alt + C 来在虚拟机中导入 Ctrl + C ，这个要注意一下
+fn supervisor_external(context: &mut Context) -> *mut Context {
+    println!("supervisor_external");
+    let mut c = console_getchar();
+    if c <= 255 {
+        if c == 3 { // 当键盘按下 Ctrl + C 时，操作系统应该能够捕捉到中断。OS捕获该信号并结束当前运行的线程
+            println!("^C");
+            PROCESSOR.lock().kill_current_thread();
+            return PROCESSOR.lock().prepare_next_thread();
+        } else if c == 'f' as usize { // 按 F 进入 fork. 
+            //fork 后应当为目前的线程复制一份几乎一样的拷贝，新线程与旧线程同属一个进程，公用页表和大部分内存空间，而新线程的栈是一份拷贝。
+            println!("F");
+            PROCESSOR.lock().fork_current_thread(context);
+        } else {
+            if c == '\r' as usize {
+                c = '\n' as usize;
+            }
+            println!("{}", c as u8);
+            //STDIN.push(c as u8);
+        }
+    }
+    context
 }
 
 /// 出现未能解决的异常

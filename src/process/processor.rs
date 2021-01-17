@@ -133,4 +133,11 @@ impl Processor {
         let thread = self.current_thread.take().unwrap();
         self.scheduler.remove_thread(&thread);
     }
+
+    /// fork 新线程
+    /// fork 后应当为目前的线程复制一份几乎一样的拷贝，新线程与旧线程同属一个进程，公用页表和大部分内存空间，而新线程的栈是一份拷贝。
+    pub fn fork_current_thread(&mut self, context: &Context){
+        let thread = self.current_thread().fork(*context).unwrap();
+        self.scheduler.add_thread(thread);
+    }
 }

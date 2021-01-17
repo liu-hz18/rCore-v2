@@ -39,6 +39,7 @@ impl Thread {
     /// 启动一个线程除了需要 Context，还需要切换页表
     /// 激活对应进程的页表，将 Context 放至内核栈顶，并返回其 Context
     /// 页表的切换不会影响OS运行，因为在中断期间是操作系统正在执行，而操作系统所用到的内核线性映射是存在于每个页表中的。
+    /// 进一步说，每一个进程的 MemorySet 都会映射操作系统的空间，否则在遇到中断的时候，将无法执行异常处理。
     pub fn prepare(&self) -> *mut Context {
         // 激活页表，换入新线程的页表
         self.process.inner().memory_set.activate();
@@ -91,6 +92,37 @@ impl Thread {
     /// 上锁并获得可变部分 ThreadInner 的引用
     pub fn inner(&self) -> spin::MutexGuard<ThreadInner> {
         self.inner.lock()
+    }
+
+    /// fork
+    /// fork 后应当为目前的线程复制一份几乎一样的拷贝，新线程与旧线程同属一个进程，公用页表和大部分内存空间，而新线程的栈是一份拷贝。
+    pub fn fork(&self, current_context: Context) -> MemoryResult<Arc<Thread>> {
+        println!("new thread forked.");
+        // 让所属进程分配并映射一段空间，作为线程的栈
+        let stack = self.process.alloc_page_range(STACK_SIZE, Flags::READABLE | Flags::WRITABLE)?;
+        // 新线程的栈是原先线程栈的拷贝 (原样复制)
+        for i in 0..STACK_SIZE {
+            *VirtualAddress(stack.start.0 + i).deref::<u8>() = *VirtualAddress(self.stack.start.0 + i).deref::<u8>()
+        }
+        // 构建线程的 Context, 包括 sepc 设置为entry_point，sp设为stack.end.into()(即线程栈顶), 压入参数arguments(<8个), sstatus的spp位 = is_user 
+        let mut context = current_context.clone();
+        // sp 指向新线程的上下文
+        context.set_sp( usize::from(stack.start) -  usize::from(self.stack.start) + current_context.sp() );
+        // 打包成线程
+        let thread = Arc::new(Thread {
+            id: unsafe {
+                THREAD_COUNTER += 1;
+                THREAD_COUNTER
+            },
+            stack,   // 线程栈
+            process: Arc::clone(&self.process), // 所属进程
+            inner: Mutex::new(ThreadInner {
+                context: Some(context), // 上下文
+                sleeping: false, // 非休眠
+                dead: false,     // 非kill
+            }),
+        });
+        Ok(thread)
     }
 }
 

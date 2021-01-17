@@ -10,16 +10,17 @@
     sd  \reg, \offset*REG_SIZE(sp) # 8Byte = 32bit
 .endm
 
+# 宏：将 n 号寄存器保存在第 n 个位置
 .macro SAVE_N n
     SAVE  x\n, \n
 .endm
-
 
 # 宏：将寄存器从栈中取出
 .macro LOAD reg, offset
     ld  \reg, \offset*REG_SIZE(sp)
 .endm
 
+# 宏：将 n 号寄存器从第 n 个位置取出
 .macro LOAD_N n
     LOAD  x\n, \n
 .endm
@@ -41,10 +42,10 @@ __interrupt:
     # 随后切换到内核线程完成中断处理 handle_interrupt，之后会进行必要的调度，将 线程的 *Context 压到内核栈顶(sp)
     # 之后handle_interrupt返回到__restore, 这里sp + CONTEXT_SIZE * REG_SIZE 肯定是内核栈顶，将其存入sscratch，sscratch就还是内核栈顶，维护正确。
     
-    # 交换 sp 和 sscratch（切换到内核栈）
+    # 交换 sp 和 sscratch（sp切换到内核栈, sscratch指向旧线程的栈顶）
     csrrw   sp, sscratch, sp
 
-    # 在栈上开辟 Context 所需的空间
+    # 在栈上开辟 Context 所需的空间，存储旧线程的上下文
     addi    sp, sp, -CONTEXT_SIZE*REG_SIZE
 
     # 保存通用寄存器，除了 x0（固定为 0）
@@ -109,9 +110,10 @@ __restore:
     .endr
 
     # 恢复 sp（又名 x2）这里最后恢复是为了上面可以正常使用 LOAD 宏
-    LOAD    x2, 2
+    LOAD    x2, 2 # 这里保存了上一次该线程的用户栈顶地址，现在赋给sp
     sret # 跳转到了sepc的值，这个值在线程创建时设置成了线程入口地址
 
 # 执行的调用关系
-# __restore(context) -> entry_point() -> kernel_thread_exit() -> ebreak -> __interrupt -> handle_interrupt -> __restore(context) -> ...
-# 
+# prepare_next() -> __restore(context) -> entry_point() -> kernel_thread_exit() -> ebreak -> __interrupt -> handle_interrupt() -> prepare_next() -> __restore(context) -> ...
+# 在栈的切换过程中，会不会导致一些栈空间没有被释放，或者被错误释放的情况？
+# 不会，因为每一次线程切换都由中断触发，而中断触发前后都会执行Context的出栈(__restore)和入栈(__interrupt + prepare_next)操作

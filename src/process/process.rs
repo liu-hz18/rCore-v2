@@ -52,7 +52,7 @@ impl Process {
     /// 分配一定数量的连续虚拟空间
     ///
     /// 从 `memory_set` 中找到一段给定长度的未占用虚拟地址空间，分配物理页面并建立映射。返回对应的页面区间。
-    ///
+    /// 返回的是地址区间
     /// `flags` 只需包括 rwx 权限，user 位会根据进程而定。
     pub fn alloc_page_range(
         &self,

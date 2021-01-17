@@ -210,6 +210,11 @@ pub fn create_kernel_thread(
 
 fn sample_process(message: usize) {
     println!("hello from kernel thread {}", message);
+    for i in 0..10000000{
+        if i%1000000 == 0 {
+            println!("Hello world from user mode program!{}",i);
+        }
+    }
 }
 
 /// Rust 的入口函数
@@ -219,9 +224,11 @@ fn sample_process(message: usize) {
 pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，那么这个函数有返回值，所以就要去掉 -> !
     println!("Hello rCore-Tutorial!");
     // 初始化各种模块, 比如设置中断入口为 __interrupt, 以及开启时钟中断
-    interrupt::init();
     memory::init();
-
+    interrupt::init();
+    //println!("Finish interrupt initialization!");
+    
+    println!("Finish initialization!");
     {
         let mut processor = PROCESSOR.lock();
         // 创建一个内核进程

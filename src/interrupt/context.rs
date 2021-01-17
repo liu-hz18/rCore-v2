@@ -19,6 +19,11 @@ pub struct Context {
     pub sepc: usize         // Exception Program Counter, 用来记录触发中断的指令的地址。
 }
 
+// status的标志位:
+// spp：中断前系统处于内核态（1）还是用户态（0）
+// sie：内核态是否允许中断。对用户态而言，无论 sie 取何值都开启中断. OS启动(初始化)时不能允许sie=1
+// spie：中断前是否开中断（用户态中断时可能 sie 为 0）
+
 /// 创建一个用 0 初始化的 Context
 ///
 /// 这里使用 [`core::mem::zeroed()`] 来强行用全 0 初始化。
