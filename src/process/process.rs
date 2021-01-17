@@ -33,7 +33,7 @@ impl Process {
         }))
     }
 
-    /// 创建进程，从文件中读取代码
+    /// 创建进程，从文件中读取代码, 用户进程根据文件创建
     pub fn from_elf(file: &ElfFile, is_user: bool) -> MemoryResult<Arc<Self>> {
         Ok(Arc::new(Self {
             is_user,

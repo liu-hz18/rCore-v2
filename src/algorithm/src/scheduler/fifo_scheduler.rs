@@ -5,7 +5,7 @@ use alloc::collections::LinkedList;
 
 /// 采用 FIFO 算法的线程调度器
 pub struct FifoScheduler<ThreadType: Clone + Eq> {
-    pool: LinkedList<ThreadType>,
+    pool: LinkedList<ThreadType>, // 单向链表，作为线程队列, ThreadType = Arc<Thread>
 }
 
 /// `Default` 创建一个空的调度器
@@ -33,9 +33,10 @@ impl<ThreadType: Clone + Eq> Scheduler<ThreadType> for FifoScheduler<ThreadType>
         }
     }
     fn remove_thread(&mut self, thread: &ThreadType) {
-        // 移除相应的线程并且确认恰移除一个线程
-        let mut removed = self.pool.drain_filter(|t| t == thread);
+        // 移除相应的线程 并且 确认恰移除一个线程
+        let mut removed = self.pool.drain_filter(|t| t == thread); // O(n)查找
         assert!(removed.next().is_some() && removed.next().is_none());
     }
+    // 优先级尚未实现
     fn set_priority(&mut self, _thread: ThreadType, _priority: ()) {}
 }

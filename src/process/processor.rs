@@ -21,7 +21,7 @@ lazy_static! {
     ).unwrap();
 }
 
-/// 不断让 CPU 进入休眠等待下一次中断
+/// 不断让 CPU 进入休眠, 等待下一次中断, 是一个死循环
 unsafe fn wait_for_interrupt() {
     loop {
         llvm_asm!("wfi" :::: "volatile");
@@ -68,6 +68,7 @@ pub struct Processor {
     sleeping_threads: HashSet<Arc<Thread>>, // 这时 CPU 如果给其时间片运行是没有意义的，因此它们也就需要移出调度器而单独保存。
 }
 
+// 处理机级的操作，主要是 执行、杀死、切换、休眠、唤醒 一个线程。对线程的操作基于Thread提供的接口
 impl Processor {
     /// 获取一个当前线程的 `Arc` 引用
     pub fn current_thread(&self) -> Arc<Thread> {
@@ -78,9 +79,11 @@ impl Processor {
     /// 在一个时钟中断时，替换掉 context
     pub fn prepare_next_thread(&mut self) -> *mut Context {
         // 向调度器询问下一个线程
+        // 切换页表不会影响执行:
+        // 因为在中断期间是操作系统正在执行，而操作系统所用到的内核线性映射是存在于每个页表中的。
         if let Some(next_thread) = self.scheduler.get_next() {
             // 准备下一个线程
-            let context = next_thread.prepare();
+            let context = next_thread.prepare(); // 同时换入了新线程的页表。
             self.current_thread = Some(next_thread);
             context
         } else {
@@ -105,7 +108,7 @@ impl Processor {
     pub fn wake_thread(&mut self, thread: Arc<Thread>) {
         thread.inner().sleeping = false;
         self.sleeping_threads.remove(&thread);
-        self.scheduler.add_thread(thread);
+        self.scheduler.add_thread(thread); // 参与调度
     }
 
     /// 保存当前线程的 `Context`

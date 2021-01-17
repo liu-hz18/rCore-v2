@@ -40,10 +40,10 @@ pub fn handle_interrupt(context: &mut Context, scause: Scause, stval: usize) -> 
     {
         let mut processor = PROCESSOR.lock();
         let current_thread = processor.current_thread();
-        if current_thread.as_ref().inner().dead {
+        if current_thread.as_ref().inner().dead { // 如果已经结束，就执行退出操作。
             println!("thread {} exit", current_thread.id);
-            processor.kill_current_thread();
-            return processor.prepare_next_thread();
+            processor.kill_current_thread(); // 处理机将其移出调度序列
+            return processor.prepare_next_thread(); // 准备下一个线程，参与调度，返回下一个线程的上下文*mut Context，编译器会负责把它放在a0寄存器中
         }
     }
     // 可以通过 Debug 来查看发生了什么中断
@@ -77,7 +77,7 @@ fn breakpoint(context: &mut Context) -> *mut Context {
 /// 目前只会在 [`timer`] 模块中进行计数，同时设置下一次时钟中断
 fn supervisor_timer(context: &Context) -> *mut Context {
     timer::tick();
-    PROCESSOR.lock().park_current_thread(context);
+    PROCESSOR.lock().park_current_thread(context); // 时钟中断时切换线程，完成一次线程调度
     PROCESSOR.lock().prepare_next_thread()
 }
 
@@ -89,7 +89,7 @@ fn loadfault(context: &Context, stval: usize) -> *mut Context {
         println!("SUCCESS!");
     }
     println!("LoadFault: \n{:?}\n  stval = 0x{:016x}", context, stval);
-    PROCESSOR.lock().kill_current_thread();
+    PROCESSOR.lock().kill_current_thread(); // 无法处理，杀死当前线程
     // 跳转到 PROCESSOR 调度的下一个线程
     PROCESSOR.lock().prepare_next_thread()
 }
@@ -102,7 +102,7 @@ fn fault(context: &mut Context, scause: Scause, stval: usize) -> *mut Context {
         context,
         stval
     );
-    PROCESSOR.lock().kill_current_thread();
+    PROCESSOR.lock().kill_current_thread(); // 无法处理，杀死当前线程
     // 跳转到 PROCESSOR 调度的下一个线程
     PROCESSOR.lock().prepare_next_thread()
 }

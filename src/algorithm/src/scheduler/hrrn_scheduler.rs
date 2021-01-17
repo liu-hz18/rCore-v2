@@ -10,7 +10,7 @@ struct HrrnThread<ThreadType: Clone + Eq> {
     /// 被分配时间片的次数
     service_count: usize,
     /// 线程数据
-    pub thread: ThreadType,
+    pub thread: ThreadType, // Arc<Thread>
 }
 
 /// 采用 HRRN（最高响应比优先算法）的调度器
@@ -51,7 +51,7 @@ impl<ThreadType: Clone + Eq> Scheduler<ThreadType> for HrrnScheduler<ThreadType>
             ((current_time - x.birth_time) * y.service_count)
                 .cmp(&((current_time - y.birth_time) * x.service_count))
         }) {
-            best.service_count += 1;
+            best.service_count += 1; // 被分配时间片数+1
             Some(best.thread.clone())
         } else {
             None

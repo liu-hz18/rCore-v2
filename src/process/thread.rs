@@ -6,7 +6,7 @@ use core::hash::{Hash, Hasher};
 /// 线程 ID 使用 `isize`，可以用负数表示错误
 pub type ThreadID = isize;
 
-/// 线程计数，用于设置线程 ID
+/// 线程计数器，用于设置线程 ID
 static mut THREAD_COUNTER: ThreadID = 0;
 
 /// 线程的信息
@@ -33,20 +33,22 @@ pub struct ThreadInner {
     pub dead: bool,
 }
 
+// 单个线程级的操作
 impl Thread {
     /// 准备执行一个线程
     /// 启动一个线程除了需要 Context，还需要切换页表
-    /// 激活对应进程的页表，并返回其 Context
+    /// 激活对应进程的页表，将 Context 放至内核栈顶，并返回其 Context
+    /// 页表的切换不会影响OS运行，因为在中断期间是操作系统正在执行，而操作系统所用到的内核线性映射是存在于每个页表中的。
     pub fn prepare(&self) -> *mut Context {
-        // 激活页表
+        // 激活页表，换入新线程的页表
         self.process.inner().memory_set.activate();
         // 取出 Context
         let parked_frame = self.inner().context.take().unwrap();
-        // 将 Context 放至内核栈顶
+        // 将 Context 放至内核栈顶 (压栈)，之后会返回到 __restore 中，完成切换上下文并跳到线程入口
         unsafe { KERNEL_STACK.push_context(parked_frame) }
     }
 
-    /// 发生时钟中断后暂停线程，保存状态
+    /// 发生时钟中断后暂停线程，保存当前线程的 `Context`
     pub fn park(&self, context: Context) {
         // 检查目前线程内的 context 应当为 None
         assert!(self.inner().context.is_none());
@@ -60,10 +62,12 @@ impl Thread {
         entry_point: usize,
         arguments: Option<&[usize]>,
     ) -> MemoryResult<Arc<Thread>> {
-        // 让所属进程分配并映射一段空间，作为线程的栈
+        // 让 所属进程 分配一段连续虚拟空间并映射一段物理空间，作为线程的栈
+        // 也就是，线程时资源的使用者，该资源从进程那里获取，进程并不会使用这些资源，而只是向操作系统索取。
+        // 页面段的权限包括: Flags::READABLE(R), Flags::WRITABLE(W). 以及 process 是否是用户态进程(U)
         let stack = process.alloc_page_range(STACK_SIZE, Flags::READABLE | Flags::WRITABLE)?;
 
-        // 构建线程的 Context
+        // 构建线程的 Context, 包括 sepc 设置为entry_point，sp设为stack.end.into()(即线程栈顶), 压入参数arguments(<8个), sstatus的spp位 = is_user 
         let context = Context::new(stack.end.into(), entry_point, arguments, process.is_user);
 
         // 打包成线程
@@ -72,19 +76,19 @@ impl Thread {
                 THREAD_COUNTER += 1;
                 THREAD_COUNTER
             },
-            stack,
-            process,
+            stack,   // 线程栈
+            process, // 所属进程
             inner: Mutex::new(ThreadInner {
-                context: Some(context),
-                sleeping: false,
-                dead: false,
+                context: Some(context), // 上下文
+                sleeping: false, // 非休眠
+                dead: false,     // 非kill
             }),
         });
 
         Ok(thread)
     }
 
-    /// 上锁并获得可变部分的引用
+    /// 上锁并获得可变部分 ThreadInner 的引用
     pub fn inner(&self) -> spin::MutexGuard<ThreadInner> {
         self.inner.lock()
     }

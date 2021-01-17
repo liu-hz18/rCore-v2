@@ -2,8 +2,6 @@
 use core::fmt;
 use core::mem::zeroed;
 use riscv::register::sstatus::{self, Sstatus, SPP::*};
-
-
 // 中断处理过程中需要保存的上下文(Context)向量
 
 // 在处理中断之前，必须要保存所有可能被修改的寄存器，并且在处理完成后恢复。

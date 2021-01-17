@@ -32,6 +32,14 @@ __interrupt:
     # 因为线程当前的栈不一定可用，必须切换到内核栈来保存 Context 并进行中断流程
     # 因此，我们使用 sscratch 寄存器保存内核栈地址
     # 思考：sscratch 的值最初是在什么地方写入的？
+    # answer: 
+    # Process::new_kernel() 会先创建内核*进程*, 负责资源申请。
+    # 然后main.rs中 create_kernel_thread 会创建内核线程，这里会通过 Thread::new() 创建线程及上下文
+    # 之后PROCESSOR开始调度，通过PROCESSOR.lock().prepare_next_thread()准备下一个也是第一个线程，这里会调用Thread::prepare()，操作包括激活页表、将Context压入内核栈顶。
+    # 之后就第一次调用 __restore(context), 在这里写入了内核栈的初始地址 sscratch = sp + CONTEXT_SIZE * REG_SIZE (这时只压入了*一个*Context，sscratch就是内核栈顶)
+    # 之后 切换线程的时候，总是由中断触发( 而不是显式调用__restore(context) )，OS会先进入__interrupt，这里会交换 sp 和 sscratch ，就跳到了内核栈(sp指向了内核栈，sscratch指向了用户程序栈)
+    # 随后切换到内核线程完成中断处理 handle_interrupt，之后会进行必要的调度，将 线程的 *Context 压到内核栈顶(sp)
+    # 之后handle_interrupt返回到__restore, 这里sp + CONTEXT_SIZE * REG_SIZE 肯定是内核栈顶，将其存入sscratch，sscratch就还是内核栈顶，维护正确。
     
     # 交换 sp 和 sscratch（切换到内核栈）
     csrrw   sp, sscratch, sp
@@ -67,7 +75,8 @@ __interrupt:
     jal  handle_interrupt
 
     .globl __restore
-# 离开中断, 在handle_interrupt之后执行
+
+# 离开中断, 是 handle_interrupt 的返回地址
 # 此时内核栈顶被推入了一个 Context，而 a0 指向它
 # 接下来从 Context 中恢复所有寄存器，并将 Context 出栈（用 sscratch 记录内核栈地址）
 # 最后跳转至 Context 中 sepc 的位置
@@ -75,7 +84,7 @@ __restore:
     # a0 应指向被压在内核栈中的 Context
     # 从 a0 中读取 sp
     # 思考：a0 是在哪里被赋值的？（有两种情况）
-    # __restore 现在会将 a0 寄存器视为一个 *mut Context 来读取，因此我们在执行第一个线程时只需调用 __restore(context)
+    # __restore 现在会将 a0 寄存器视为一个 *mut Context 来读取，因此我们在执行第一个线程时只需调用 __restore(context) （其他线程可以在处理中断时进行调度，跳转到__restore）
     # 如果是程序发生了中断，执行到 __restore 的时候，a0 的值又是谁赋予的呢？
     # 当发生中断时，在 __restore 时，a0 寄存器的值是 handle_interrupt 函数的返回值。
     # 也就是说，如果我们令 handle_interrupt 函数返回另一个线程的 *mut Context，就可以在时钟中断后跳转到这个线程来执行。
@@ -101,4 +110,8 @@ __restore:
 
     # 恢复 sp（又名 x2）这里最后恢复是为了上面可以正常使用 LOAD 宏
     LOAD    x2, 2
-    sret
+    sret # 跳转到了sepc的值，这个值在线程创建时设置成了线程入口地址
+
+# 执行的调用关系
+# __restore(context) -> entry_point() -> kernel_thread_exit() -> ebreak -> __interrupt -> handle_interrupt -> __restore(context) -> ...
+# 

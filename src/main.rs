@@ -190,7 +190,7 @@ global_asm!(include_str!("entry.asm"));
 fn kernel_thread_exit() {
     // 当前线程标记为结束
     PROCESSOR.lock().current_thread().as_ref().inner().dead = true;
-    // 制造一个中断来交给操作系统处理
+    // 制造一个中断 ebreak 来交给操作系统处理
     unsafe { llvm_asm!("ebreak" :::: "volatile") };
 }
 
@@ -203,7 +203,7 @@ pub fn create_kernel_thread(
     // 创建线程
     let thread = Thread::new(process, entry_point, arguments).unwrap();
     // 设置线程的返回地址为 kernel_thread_exit
-    thread.as_ref().inner().context.as_mut().unwrap()
+    thread.as_ref().inner().context.as_mut().unwrap() // 对Thread::ThreadInner::Context成员设置ra
         .set_ra(kernel_thread_exit as usize);
     thread
 }
@@ -241,7 +241,8 @@ pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，�
     }
     // 获取第一个线程的 Context，具体原理后面讲解
     let context = PROCESSOR.lock().prepare_next_thread();
-    // 启动第一个线程
+    // 启动第一个线程，此时线程的 Context 在内核栈顶，由 __restore 恢复并跳转到 sepc 的位置(创建时设置为了entry_point:sample_process) 执行
+    // __restore 完成加载 内核栈顶 的Context, 并通过 sret 跳转到 sepc 指向的位置
     unsafe { __restore(context as usize) }; // 我们直接调用的 __restore 并没有 ret 指令，甚至 ra 都会被 Context 中的数值直接覆盖。这意味着，一旦我们执行了 __restore(context)，程序就无法返回到调用它的位置了。
     unreachable!();
 
