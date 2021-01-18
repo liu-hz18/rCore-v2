@@ -69,6 +69,12 @@ impl MemorySet {
                 range: Range::from(*KERNEL_END_ADDRESS..VirtualAddress::from(MEMORY_END_ADDRESS)),
                 flags: Flags::READABLE | Flags::WRITABLE,
             },
+            // DEVICE 段，rw-. 加入堆外设的支持
+            Segment {
+                map_type: MapType::Linear,
+                range: Range::from(DEVICE_START_ADDRESS..DEVICE_END_ADDRESS),
+                flags: Flags::READABLE | Flags::WRITABLE,
+            },
         ];
         let mut mapping = Mapping::new()?;
 

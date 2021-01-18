@@ -85,7 +85,6 @@ impl Thread {
                 dead: false,     // 非kill
             }),
         });
-
         Ok(thread)
     }
 
@@ -97,7 +96,6 @@ impl Thread {
     /// fork
     /// fork 后应当为目前的线程复制一份几乎一样的拷贝，新线程与旧线程同属一个进程，公用页表和大部分内存空间，而新线程的栈是一份拷贝。
     pub fn fork(&self, current_context: Context) -> MemoryResult<Arc<Thread>> {
-        println!("new thread forked.");
         // 让所属进程分配并映射一段空间，作为线程的栈
         let stack = self.process.alloc_page_range(STACK_SIZE, Flags::READABLE | Flags::WRITABLE)?;
         // 新线程的栈是原先线程栈的拷贝 (原样复制)
