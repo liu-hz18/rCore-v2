@@ -32,11 +32,16 @@ mod sbi;
 mod interrupt;
 mod memory;
 mod process;
+mod drivers;
+mod fs;
 
 extern crate alloc;
 
 use process::*;
 use alloc::sync::Arc;
+use memory::PhysicalAddress;
+use fs::{INodeExt, ROOT_INODE};
+use xmas_elf::ElfFile;
 
 // 汇编编写的程序入口，具体见该文件 entry.asm
 global_asm!(include_str!("entry.asm"));
@@ -182,6 +187,20 @@ global_asm!(include_str!("entry.asm"));
 // 不是每个线程都需要一个独立的内核栈，因为内核栈只会在中断时使用，而中断结束后就不再使用。在只有一个 CPU 的情况下，不会有两个线程同时出现中断，所以我们只需要实现一个共用的内核栈就可以了。
 // 每个线程都需要能够在中断时第一时间找到内核栈的地址。这时，所有通用寄存器的值都无法预知，也无法从某个变量来加载地址。为此，我们将内核栈的地址存放到内核态使用的特权寄存器 sscratch 中。这个寄存器只能在内核态访问，这样在中断发生时，就可以安全地找到内核栈了。
 
+// Step 5.1 设备树
+// 首先操作系统就要有一个读取全部已接入设备信息的能力, 这个一般是由 bootloader，即 OpenSBI 固件完成的
+// 它来完成对于包括物理内存在内的各外设的扫描，将扫描结果以设备树二进制对象（DTB，Device Tree Blob）的格式保存在物理内存中的某个地方。
+// 而这个放置的物理地址将放在 a1 寄存器中，而将会把 HART(硬件线程) ID 放在 a0 寄存器上。
+// 如果要使用，我们不需要修改任何入口汇编的代码，只需要给 rust_main 函数增加两个参数即可
+// 每个设备在物理上连接到了父设备上最后再通过总线等连接起来构成一整个设备树，在每个节点上都描述了对应设备的信息，如支持的协议是什么类型等等
+// 操作系统就是通过这些节点上的信息来实现对设备的识别的。
+
+// Step 5.2 virtio 节点探测
+// 进一步来区分上面提到的那些 virtio 设备
+
+// Step 5.3 驱动和块设备驱动, 抽象驱动
+// virtio-blk 设备，这种设备提供了以整块为粒度的读和写操作，一般对应到真实的物理设备是那种硬盘
+// 之所以是以块为单位是为了加快读写的速度，毕竟硬盘等设备还需要寻道等等操作，一次性读取很大的一块将会节约很多时间。
 
 /// 内核线程需要调用这个函数来退出
 /// 内核线程将自己标记为“已结束”，同时触发一个普通的异常 ebreak
@@ -210,48 +229,56 @@ pub fn create_kernel_thread(
 
 fn sample_process(message: usize) {
     println!("hello from kernel thread {}", message);
-    for i in 0..10000000{
-        if i%1000000 == 0 {
-            println!("Hello world from user mode program!{}",i);
-        }
-    }
+    // for i in 0..10000000{
+    //     if i%1000000 == 0 {
+    //         println!("Hello world from user mode program!{}",i);
+    //     }
+    // }
+}
+
+/// 测试任何内核线程都可以操作文件系统和驱动
+fn simple(id: usize) {
+    println!("hello from thread id {}", id);
+    // 新建一个目录
+    fs::ROOT_INODE
+        .create("tmp", rcore_fs::vfs::FileType::Dir, 0o666)
+        .expect("failed to mkdir /tmp");
+    // 输出根文件目录内容
+    fs::ROOT_INODE.ls();
+    loop {} // 这个死循环会一直执行，同时OS响应时钟中断
 }
 
 /// Rust 的入口函数
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
+/// 为了完成设备树，增加两个参数，有OpenSBI传入(a0和a1寄存器)
 #[no_mangle]
-pub extern "C" fn rust_main() -> ! { // 如果最后不是死循环或panic!，那么这个函数有返回值，所以就要去掉 -> !
+pub extern "C" fn rust_main(_hart_id: usize, dtb_pa: PhysicalAddress) -> ! { // 如果最后不是死循环或panic!，那么这个函数有返回值，所以就要去掉 -> !
     println!("Hello rCore-Tutorial!");
     // 初始化各种模块, 比如设置中断入口为 __interrupt, 以及开启时钟中断
     memory::init();
     interrupt::init();
-    //println!("Finish interrupt initialization!");
-    
+    drivers::init(dtb_pa); // dtb_pa 变量约在 0x82200000 附近，而内核结束的地址约为 0x80b17000，也就是在我们内核的后面放着，这意味着当我们内核代码超过 32MB 的时候就会出现问题
+    fs::init();
     println!("Finish initialization!");
-    {
-        let mut processor = PROCESSOR.lock();
-        // 创建一个内核进程
-        let kernel_process = Process::new_kernel().unwrap();
-        // 为这个进程创建多个线程，并设置入口均为 sample_process，而参数不同
-        for i in 1..9usize {
-            processor.add_thread(create_kernel_thread(
-                kernel_process.clone(),
-                sample_process as usize,
-                Some(&[i]),
-            ));
-        }
-    }
+    
+    let process = Process::new_kernel().unwrap();
+
+    PROCESSOR
+        .lock()
+        .add_thread(Thread::new(process.clone(), simple as usize, Some(&[0])).unwrap());
+
+    // 把多余的 process 引用丢弃掉
+    drop(process);
 
     extern "C" {
-        fn __restore(context: usize); 
+        fn __restore(context: usize);
     }
-    // 获取第一个线程的 Context，具体原理后面讲解
+    // 获取第一个线程的 Context
     let context = PROCESSOR.lock().prepare_next_thread();
-    // 启动第一个线程，此时线程的 Context 在内核栈顶，由 __restore 恢复并跳转到 sepc 的位置(创建时设置为了entry_point:sample_process) 执行
-    // __restore 完成加载 内核栈顶 的Context, 并通过 sret 跳转到 sepc 指向的位置
-    unsafe { __restore(context as usize) }; // 我们直接调用的 __restore 并没有 ret 指令，甚至 ra 都会被 Context 中的数值直接覆盖。这意味着，一旦我们执行了 __restore(context)，程序就无法返回到调用它的位置了。
-    unreachable!();
+    // 启动第一个线程
+    unsafe { __restore(context as usize) };
+    unreachable!()
 
     //panic!("end of rust_main")
 }
