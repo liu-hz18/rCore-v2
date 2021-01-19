@@ -23,7 +23,7 @@ pub struct ProcessInner {
 
 #[allow(unused)]
 impl Process {
-    /// 创建一个内核进程
+    /// 创建一个内核进程, 只能创建一个内核进程！！！
     pub fn new_kernel() -> MemoryResult<Arc<Self>> {
         Ok(Arc::new(Self {
             is_user: false,

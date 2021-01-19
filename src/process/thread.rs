@@ -15,7 +15,7 @@ pub struct Thread {
     pub id: ThreadID, // 用于唯一确认一个线程，它会在系统调用等时刻用到。
     /// 线程的栈
     pub stack: Range<VirtualAddress>, // 运行栈：每个线程都必须有一个独立的运行栈，保存运行时数据。这里只是记录栈的地址区间
-    /// 所属的进程
+    /// 所属的进程，使用 引用计数 增加安全性
     pub process: Arc<Process>, // 所属进程的记号：同一个进程中的多个线程，会共享页表、打开文件等信息。因此，我们将它们提取出来放到线程中。
     /// 用 `Mutex` 包装一些可变的变量
     pub inner: Mutex<ThreadInner>, // 因为线程一般使用 Arc<Thread> 来保存，它是不可变的，所以其中再用 Mutex 来包装一部分，让这部分可以修改。
@@ -59,7 +59,7 @@ impl Thread {
 
     /// 创建一个线程
     pub fn new(
-        process: Arc<Process>,
+        process: Arc<Process>, // 占用process所有权
         entry_point: usize,
         arguments: Option<&[usize]>,
     ) -> MemoryResult<Arc<Thread>> {

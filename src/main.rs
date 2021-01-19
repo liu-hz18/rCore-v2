@@ -270,19 +270,14 @@ pub fn create_user_process(name: &str) -> Arc<Thread> {
     let data = app.readall().unwrap();
     // 解析 ELF 文件
     let elf = ElfFile::new(data.as_slice()).unwrap();
-    // 利用 ELF 文件创建线程，映射空间并加载数据
+    // 利用 ELF 文件创建进程，映射空间并加载数据
     let process = Process::from_elf(&elf, true).unwrap();
-    // 再从 ELF 中读出程序入口地址
+    // 再从 ELF 中读出程序入口地址，创建该进程的线程
     Thread::new(process, elf.header.pt2.entry_point() as usize, None).unwrap()
 }
 
 fn sample_process(message: usize) {
     println!("hello from kernel thread {}", message);
-    // for i in 0..10000000{
-    //     if i%1000000 == 0 {
-    //         println!("Hello world from user mode program!{}",i);
-    //     }
-    // }
 }
 
 /// 测试任何内核线程都可以操作文件系统和驱动
@@ -297,18 +292,20 @@ fn simple(id: usize) {
     loop {} // 这个死循环会一直执行，同时OS响应时钟中断
 }
 
-fn start_kernel_thread(entry_point: usize, arguments: Option<&[usize]>) {
-    let kernel_process = Process::new_kernel().unwrap();
+// 向处理机添加一个内核线程参与调度
+fn add_kernel_thread(kernel_process: Arc<Process>, entry_point: usize, arguments: Option<&[usize]>) {
     PROCESSOR
         .lock()
-        .add_thread(Thread::new(kernel_process, entry_point, arguments).unwrap());
+        .add_thread(create_kernel_thread(kernel_process, entry_point, arguments));
 }
 
-fn start_user_thread(name: &str) {
+// 向处理机添加一个用户进程参与调度
+fn add_user_thread(name: &str) {
     let thread = create_user_process(name);
     PROCESSOR.lock().add_thread(thread);
 }
 
+// 开始运行处理机
 fn start_processor() {
     extern "C" {
         fn __restore(context: usize);
@@ -332,11 +329,12 @@ pub extern "C" fn rust_main(_hart_id: usize, dtb_pa: PhysicalAddress) -> ! { // 
     drivers::init(dtb_pa); // dtb_pa 变量约在 0x82200000 附近，而内核结束的地址约为 0x80b17000，也就是在我们内核的后面放着，这意味着当我们内核代码超过 32MB 的时候就会出现问题
     fs::init();
     println!("Finish initialization!");
-    
+
+    let kernel_process = Process::new_kernel().unwrap();
     for i in 1..9usize {
-        start_kernel_thread(sample_process as usize, Some(&[i]));
+        add_kernel_thread(kernel_process.clone(), sample_process as usize, Some(&[i]));
     }
-    start_user_thread("hello_world");
+    add_user_thread("hello_world");
 
     start_processor();
     unreachable!()
