@@ -28,10 +28,6 @@
 //!   允许使用 naked 函数，即编译器不在函数前后添加出入栈操作。
 //!   这允许我们在函数中间内联汇编使用 `ret` 提前结束，而不会导致栈出现异常
 #![feature(naked_functions)]
-//!
-//! - `#![feature(slice_fill)]`
-//!   允许将 slice 填充值
-#![feature(slice_fill)]
 
 #[macro_use]
 mod console;
@@ -291,12 +287,12 @@ pub fn create_user_process(name: &str, priority: usize) -> Arc<Thread> {
 }
 
 fn sample_process(message: usize) {
-    //println!("hello from kernel thread {}", message);
-    for i in 0..4000000{
-        if i%1000000 == 0 {
-            println!("Hello world from kernel id {} program!{}", message, i);
-        }
-    }
+    println!("hello from kernel thread {}", message);
+    // for i in 0..4000000{
+    //     if i%1000000 == 0 {
+    //         println!("Hello world from kernel id {} program!{}", message, i);
+    //     }
+    // }
 }
 
 /// 测试任何内核线程都可以操作文件系统和驱动
@@ -332,7 +328,10 @@ fn start_processor() {
     // 获取第一个线程的 Context
     let context = PROCESSOR.lock().prepare_next_thread();
     // 启动第一个线程
-    unsafe { __restore(context as usize) };
+    unsafe { 
+        llvm_asm!("fence.i" :::: "volatile");
+        __restore(context as usize)
+    };
 }
 
 /// Rust 的入口函数
@@ -355,10 +354,12 @@ pub extern "C" fn rust_main(_hart_id: usize, dtb_pa: PhysicalAddress) -> ! { // 
         // 如果采用Stride Scheduling 算法，可以看到线程9最先退出，之后是线程8，线程7....
         // 而其他算法不考虑优先级，所以退出顺序不定.
     }
-    add_user_thread("hello_world", 1);
-    add_user_thread("hello_world", 2);
-    add_user_thread("hello_world", 4);
-    add_user_thread("hello_world", 8);
+    // add_user_thread("hello_world", 1);
+    // add_user_thread("hello_world", 2);
+    // add_user_thread("hello_world", 4);
+    // add_user_thread("hello_world", 8);
+    add_user_thread("fantastic_text", 8);
+    add_user_thread("user_shell", 8);
 
     start_processor();
     unreachable!()
