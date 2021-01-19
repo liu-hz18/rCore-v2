@@ -32,9 +32,9 @@ impl<ThreadType: Clone + Eq> Default for HrrnScheduler<ThreadType> {
 }
 
 impl<ThreadType: Clone + Eq> Scheduler<ThreadType> for HrrnScheduler<ThreadType> {
-    type Priority = ();
+    //type Priority = ();
 
-    fn add_thread(&mut self, thread: ThreadType) {
+    fn add_thread(&mut self, thread: ThreadType, _priority: usize) {
         self.pool.push_back(HrrnThread {
             birth_time: self.current_time,
             service_count: 0,
@@ -62,5 +62,5 @@ impl<ThreadType: Clone + Eq> Scheduler<ThreadType> for HrrnScheduler<ThreadType>
         let mut removed = self.pool.drain_filter(|t| t.thread == *thread);
         assert!(removed.next().is_some() && removed.next().is_none());
     }
-    fn set_priority(&mut self, _thread: ThreadType, _priority: ()) {}
+    fn set_priority(&mut self, _thread: ThreadType, _priority: usize) {}
 }

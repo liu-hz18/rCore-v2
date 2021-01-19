@@ -18,8 +18,8 @@ impl<ThreadType: Clone + Eq> Default for FifoScheduler<ThreadType> {
 }
 
 impl<ThreadType: Clone + Eq> Scheduler<ThreadType> for FifoScheduler<ThreadType> {
-    type Priority = ();
-    fn add_thread(&mut self, thread: ThreadType) {
+    //type Priority = ();
+    fn add_thread(&mut self, thread: ThreadType, _priority: usize) {
         // 加入链表尾部
         self.pool.push_back(thread);
     }
@@ -38,5 +38,5 @@ impl<ThreadType: Clone + Eq> Scheduler<ThreadType> for FifoScheduler<ThreadType>
         assert!(removed.next().is_some() && removed.next().is_none());
     }
     // 优先级尚未实现
-    fn set_priority(&mut self, _thread: ThreadType, _priority: ()) {}
+    fn set_priority(&mut self, _thread: ThreadType, _priority: usize) {}
 }

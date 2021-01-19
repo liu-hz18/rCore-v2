@@ -18,6 +18,7 @@ lazy_static! {
         Process::new_kernel().unwrap(),
         wait_for_interrupt as usize,
         None,
+        1,
     ).unwrap();
 }
 
@@ -101,14 +102,16 @@ impl Processor {
 
     /// 添加一个待执行的线程
     pub fn add_thread(&mut self, thread: Arc<Thread>) {
-        self.scheduler.add_thread(thread);
+        let priority = thread.inner().priority;
+        self.scheduler.add_thread(thread, priority);
     }
 
     /// 唤醒一个休眠线程
     pub fn wake_thread(&mut self, thread: Arc<Thread>) {
         thread.inner().sleeping = false;
+        let priority = thread.inner().priority;
         self.sleeping_threads.remove(&thread);
-        self.scheduler.add_thread(thread); // 参与调度
+        self.scheduler.add_thread(thread, priority); // 参与调度
     }
 
     /// 保存当前线程的 `Context`
@@ -138,7 +141,8 @@ impl Processor {
     /// fork 后应当为目前的线程复制一份几乎一样的拷贝，新线程与旧线程同属一个进程，公用页表和大部分内存空间，而新线程的栈是一份拷贝。
     pub fn fork_current_thread(&mut self, context: &Context){
         let thread = self.current_thread().fork(*context).unwrap();
+        let priority = thread.inner().priority;
         println!("new thread {} forked from thread {}.", &thread.id, self.current_thread().id);
-        self.scheduler.add_thread(thread); // value moved here
+        self.scheduler.add_thread(thread, priority); // value moved here
     }
 }
