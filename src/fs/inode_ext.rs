@@ -19,11 +19,11 @@ impl INodeExt for dyn INode {
             id += 1;
         }
     }
-
+    // 从 ELF 文件中加载(读取)用户程序的代码和数据信息，并且映射到内存中。
     fn readall(&self) -> Result<Vec<u8>> {
         // 从文件头读取长度
         let size = self.metadata()?.size;
-        // 构建 Vec 并读取
+        // 构建 Vec （映射到内存）并读取
         let mut buffer = Vec::with_capacity(size);
         unsafe { buffer.set_len(size) };
         self.read_at(0, buffer.as_mut_slice())?;

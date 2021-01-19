@@ -8,6 +8,8 @@ use riscv::register::{
 };
 use crate::sbi::console_getchar;
 use crate::memory::*;
+use crate::fs::STDIN;
+use crate::kernel::syscall_handler;
 
 global_asm!(include_str!("./interrupt.asm"));
 
@@ -63,6 +65,8 @@ pub fn handle_interrupt(context: &mut Context, scause: Scause, stval: usize) -> 
         Trap::Exception(Exception::Breakpoint) => breakpoint(context),
         // Load Fault, 访问不存在地址
         Trap::Exception(Exception::LoadFault) => loadfault(context, stval),
+        // 系统调用
+        Trap::Exception(Exception::UserEnvCall) => syscall_handler(context),
         // 时钟中断
         Trap::Interrupt(Interrupt::SupervisorTimer) => supervisor_timer(context),
         // 外部中断（键盘输入）
@@ -120,7 +124,8 @@ fn supervisor_external(context: &mut Context) -> *mut Context {
             if c == '\r' as usize {
                 c = '\n' as usize;
             }
-            println!("{}", c as u8 as char);
+            STDIN.push(c as u8);
+            //println!("{}", c as u8 as char);
         }
     }
     context

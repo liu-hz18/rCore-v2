@@ -23,7 +23,15 @@
 //!   我们使用了一个全局动态内存分配器，以实现原本标准库中的堆内存分配。
 //!   而语言要求我们同时实现一个错误回调，这里我们直接 panic
 #![feature(alloc_error_handler)]
-
+//!
+//! - `#![feature(naked_functions)]`
+//!   允许使用 naked 函数，即编译器不在函数前后添加出入栈操作。
+//!   这允许我们在函数中间内联汇编使用 `ret` 提前结束，而不会导致栈出现异常
+#![feature(naked_functions)]
+//!
+//! - `#![feature(slice_fill)]`
+//!   允许将 slice 填充值
+#![feature(slice_fill)]
 
 #[macro_use]
 mod console;
@@ -34,6 +42,7 @@ mod memory;
 mod process;
 mod drivers;
 mod fs;
+mod kernel;
 
 extern crate alloc;
 
@@ -202,6 +211,32 @@ global_asm!(include_str!("entry.asm"));
 // virtio-blk 设备，这种设备提供了以整块为粒度的读和写操作，一般对应到真实的物理设备是那种硬盘
 // 之所以是以块为单位是为了加快读写的速度，毕竟硬盘等设备还需要寻道等等操作，一次性读取很大的一块将会节约很多时间。
 
+// Step 6.1 构建用户程序框架
+// 解析 ELF 文件并创建线程
+// 我们需要从 ELF 文件中加载用户程序的代码和数据信息，并且映射到内存中。
+// Q: 我们在为用户程序建立映射时，虚拟地址是 ELF 文件中写明的，那物理地址是程序在磁盘中存储的地址吗？这样做有什么问题吗？
+// > 不可以。如果直接映射磁盘空间，使用时会带来巨大的延迟，所以需要在程序准备运行时，将其磁盘中的数据复制到内存中。如果程序较大，操作系统可能只会复制少量数据，而更多的则在需要时再加载。当然，我们实现的简单操作系统就一次性全都加载到内存中了。
+// > 这是因为虚实地址转换时，页内偏移是不变的。但是无法保证在 ELF 中指定的地址和其在磁盘中的地址满足这样的关系。
+// Q: 对于一个页面，有其物理地址、虚拟地址和待加载数据的地址。此时，是不是直接从待加载数据的地址拷贝到页面的虚拟地址，如同 memcpy 一样就可以呢？
+// > 在目前的框架中，只有当线程将要运行时，才会加载其页表。因此，除非我们额外的在每映射一个页面之后，就更新一次页表并且刷新 TLB，否则此时的虚拟地址是无法访问的。
+// > 但是，我们通过分配器得到了页面的物理地址，而这个物理地址实际上已经在内核的线性映射当中了。所以，这里实际上用的是物理地址来写入数据。
+
+// 处理文件描述符： 实现读 / 写系统调用
+// 利用文件的统一接口 INode，使用其中的 read_at() 和 write_at() 接口即可
+// 大多操作系统中，标准输入输出流 stdin 和 stdout 虽然叫做「流」，但它们都有文件的接口。我们同样也会将它们实现成为文件。
+// 不用担心，作为文件的许多功能，stdin 和 stdout 都不会支持。我们只需要为其实现最简单的读写接口。
+
+// 条件变量:
+// wait：当前线程开始等待这个条件变量
+// notify_one：让某一个等待此条件变量的线程继续运行
+// notify_all：让所有等待此变量的线程继续运行
+// 条件变量和互斥锁的区别在于，互斥锁解铃还须系铃人，但条件变量可以由任何来源发出 notify 信号。
+// 互斥锁的一次 lock 一定对应一次 unlock，但条件变量多次 notify 只能保证 wait 的线程执行次数不超过 notify 次数。
+// 为输入流加入条件变量后，就可以使得调用 sys_read 的线程在等待期间保持休眠，不被调度器选中，消耗 CPU 资源。
+
+// Q: 如果多个线程同时等待输入流会怎么样？有什么解决方案吗？
+// 会导致只有一个线程获取输入，别的就一直被阻塞。
+
 /// 内核线程需要调用这个函数来退出
 /// 内核线程将自己标记为“已结束”，同时触发一个普通的异常 ebreak
 /// 此时操作系统观察到线程的标记，便将其终止。
@@ -227,6 +262,20 @@ pub fn create_kernel_thread(
     thread
 }
 
+/// 创建一个用户进程，从指定的文件名读取 ELF
+pub fn create_user_process(name: &str) -> Arc<Thread> {
+    // 从文件系统中找到程序
+    let app = ROOT_INODE.find(name).unwrap();
+    // 读取数据
+    let data = app.readall().unwrap();
+    // 解析 ELF 文件
+    let elf = ElfFile::new(data.as_slice()).unwrap();
+    // 利用 ELF 文件创建线程，映射空间并加载数据
+    let process = Process::from_elf(&elf, true).unwrap();
+    // 再从 ELF 中读出程序入口地址
+    Thread::new(process, elf.header.pt2.entry_point() as usize, None).unwrap()
+}
+
 fn sample_process(message: usize) {
     println!("hello from kernel thread {}", message);
     // for i in 0..10000000{
@@ -248,6 +297,28 @@ fn simple(id: usize) {
     loop {} // 这个死循环会一直执行，同时OS响应时钟中断
 }
 
+fn start_kernel_thread(entry_point: usize, arguments: Option<&[usize]>) {
+    let kernel_process = Process::new_kernel().unwrap();
+    PROCESSOR
+        .lock()
+        .add_thread(Thread::new(kernel_process, entry_point, arguments).unwrap());
+}
+
+fn start_user_thread(name: &str) {
+    let thread = create_user_process(name);
+    PROCESSOR.lock().add_thread(thread);
+}
+
+fn start_processor() {
+    extern "C" {
+        fn __restore(context: usize);
+    }
+    // 获取第一个线程的 Context
+    let context = PROCESSOR.lock().prepare_next_thread();
+    // 启动第一个线程
+    unsafe { __restore(context as usize) };
+}
+
 /// Rust 的入口函数
 /// 在 entry.asm 中通过 jal 指令调用的，因此其执行完后会回到 entry.asm 中
 /// 在 `_start` 为我们进行了一系列准备之后，这是第一个被调用的 Rust 函数
@@ -262,23 +333,12 @@ pub extern "C" fn rust_main(_hart_id: usize, dtb_pa: PhysicalAddress) -> ! { // 
     fs::init();
     println!("Finish initialization!");
     
-    let process = Process::new_kernel().unwrap();
-
-    PROCESSOR
-        .lock()
-        .add_thread(Thread::new(process.clone(), simple as usize, Some(&[0])).unwrap());
-
-    // 把多余的 process 引用丢弃掉
-    drop(process);
-
-    extern "C" {
-        fn __restore(context: usize);
+    for i in 1..9usize {
+        start_kernel_thread(sample_process as usize, Some(&[i]));
     }
-    // 获取第一个线程的 Context
-    let context = PROCESSOR.lock().prepare_next_thread();
-    // 启动第一个线程
-    unsafe { __restore(context as usize) };
-    unreachable!()
+    start_user_thread("hello_world");
 
+    start_processor();
+    unreachable!()
     //panic!("end of rust_main")
 }

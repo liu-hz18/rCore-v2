@@ -96,6 +96,7 @@ impl Mapping {
     /// 加入一段映射，可能会相应地分配物理页面
     ///
     /// 未被分配物理页面的虚拟页号暂时不会写入页表当中，它们会在发生 PageFault 后再建立页表项。
+    /// 为其增加一个参数表示用于初始化的数据
     pub fn map(&mut self, segment: &Segment, init_data: Option<&[u8]>) -> MemoryResult<()> {
         match segment.map_type {
             // 线性映射，直接对虚拟地址进行转换
