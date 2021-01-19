@@ -31,6 +31,8 @@ pub struct ThreadInner {
     pub sleeping: bool,
     /// 是否已经结束
     pub dead: bool,
+    /// priority, 用于Stride Scheduling 调度算法
+    pub priority: usize,
 }
 
 // 单个线程级的操作
@@ -62,6 +64,7 @@ impl Thread {
         process: Arc<Process>, // 占用process所有权
         entry_point: usize,
         arguments: Option<&[usize]>,
+        priority: usize,
     ) -> MemoryResult<Arc<Thread>> {
         // 让 所属进程 分配一段连续虚拟空间并映射一段物理空间，作为线程的栈
         // 也就是，线程时资源的使用者，该资源从进程那里获取，进程并不会使用这些资源，而只是向操作系统索取。
@@ -83,6 +86,7 @@ impl Thread {
                 context: Some(context), // 上下文
                 sleeping: false, // 非休眠
                 dead: false,     // 非kill
+                priority: priority,
             }),
         });
         Ok(thread)
@@ -118,6 +122,7 @@ impl Thread {
                 context: Some(context), // 上下文
                 sleeping: false, // 非休眠
                 dead: false,     // 非kill
+                priority: self.inner().priority.clone(),
             }),
         });
         Ok(thread)

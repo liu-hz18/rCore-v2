@@ -241,6 +241,14 @@ global_asm!(include_str!("entry.asm"));
 // A: 应当要在用户部分实现 #[global_allocator] ：包含 [alloc::alloc::GlobalAlloc] trait等
 //    另外开辟一个空间作为用户堆；
 
+// Q: 在 Stride Scheduling 算法下，如果一个线程进入了一段时间的等待（例如等待输入，此时它不会被运行），会发生什么？
+// A: 如果在这种简单的实现下，有可能会出现其他线程等待该线程的情况；比如一个要获取输入的进程的优先级较高，要等它的 pass 经过多个时间片比其他的线程大的时候其他线程才会被调度。
+
+// Q: 对于两个优先级分别为 9 和 1 的线程，连续 10 个时间片中，前者的运行次数一定更多吗？
+// A: 并不一定，因为有可能9的线程运行了一下就结束了。
+
+// Q: 你认为 Stride Scheduling 算法有什么不合理之处？可以怎样改进？
+// A: 可能会出现等待线程的情况；也要注意，新加进去的进程的pass不能是0，否则会一直霸占着时间片；
 
 /// 内核线程需要调用这个函数来退出
 /// 内核线程将自己标记为“已结束”，同时触发一个普通的异常 ebreak
@@ -258,9 +266,10 @@ pub fn create_kernel_thread(
     process: Arc<Process>,
     entry_point: usize,
     arguments: Option<&[usize]>,
+    priority: usize,
 ) -> Arc<Thread> {
     // 创建线程
-    let thread = Thread::new(process, entry_point, arguments).unwrap();
+    let thread = Thread::new(process, entry_point, arguments, priority).unwrap();
     // 设置线程的返回地址为 kernel_thread_exit
     thread.as_ref().inner().context.as_mut().unwrap() // 对Thread::ThreadInner::Context成员设置ra
         .set_ra(kernel_thread_exit as usize);
@@ -268,7 +277,7 @@ pub fn create_kernel_thread(
 }
 
 /// 创建一个用户进程，从指定的文件名读取 ELF
-pub fn create_user_process(name: &str) -> Arc<Thread> {
+pub fn create_user_process(name: &str, priority: usize) -> Arc<Thread> {
     // 从文件系统中找到程序
     let app = ROOT_INODE.find(name).unwrap();
     // 读取数据
@@ -278,11 +287,16 @@ pub fn create_user_process(name: &str) -> Arc<Thread> {
     // 利用 ELF 文件创建进程，映射空间并加载数据
     let process = Process::from_elf(&elf, true).unwrap();
     // 再从 ELF 中读出程序入口地址，创建该进程的线程
-    Thread::new(process, elf.header.pt2.entry_point() as usize, None).unwrap()
+    Thread::new(process, elf.header.pt2.entry_point() as usize, None, priority).unwrap()
 }
 
 fn sample_process(message: usize) {
-    println!("hello from kernel thread {}", message);
+    //println!("hello from kernel thread {}", message);
+    for i in 0..4000000{
+        if i%1000000 == 0 {
+            println!("Hello world from kernel id {} program!{}", message, i);
+        }
+    }
 }
 
 /// 测试任何内核线程都可以操作文件系统和驱动
@@ -298,15 +312,15 @@ fn simple(id: usize) {
 }
 
 // 向处理机添加一个内核线程参与调度
-fn add_kernel_thread(kernel_process: Arc<Process>, entry_point: usize, arguments: Option<&[usize]>) {
+fn add_kernel_thread(kernel_process: Arc<Process>, entry_point: usize, arguments: Option<&[usize]>, priority: usize) {
     PROCESSOR
         .lock()
-        .add_thread(create_kernel_thread(kernel_process, entry_point, arguments));
+        .add_thread(create_kernel_thread(kernel_process, entry_point, arguments, priority));
 }
 
 // 向处理机添加一个用户进程参与调度
-fn add_user_thread(name: &str) {
-    let thread = create_user_process(name);
+fn add_user_thread(name: &str, priority: usize) {
+    let thread = create_user_process(name, priority);
     PROCESSOR.lock().add_thread(thread);
 }
 
@@ -337,9 +351,14 @@ pub extern "C" fn rust_main(_hart_id: usize, dtb_pa: PhysicalAddress) -> ! { // 
 
     let kernel_process = Process::new_kernel().unwrap();
     for i in 1..9usize {
-        add_kernel_thread(kernel_process.clone(), sample_process as usize, Some(&[i]));
+        add_kernel_thread(kernel_process.clone(), sample_process as usize, Some(&[i]), i);
+        // 如果采用Stride Scheduling 算法，可以看到线程9最先退出，之后是线程8，线程7....
+        // 而其他算法不考虑优先级，所以退出顺序不定.
     }
-    add_user_thread("hello_world");
+    add_user_thread("hello_world", 1);
+    add_user_thread("hello_world", 2);
+    add_user_thread("hello_world", 4);
+    add_user_thread("hello_world", 8);
 
     start_processor();
     unreachable!()
