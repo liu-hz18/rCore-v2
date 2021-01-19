@@ -6,7 +6,7 @@ use crate::drivers::{
     block::BlockDevice,
     driver::{DeviceType, DRIVERS},
 };
-//use crate::kernel::Condvar;
+use crate::kernel::Condvar;
 use alloc::{sync::Arc, vec::Vec};
 use core::any::Any;
 use lazy_static::lazy_static;
@@ -15,10 +15,14 @@ use spin::Mutex;
 
 mod config;
 mod inode_ext;
+mod stdin;
+mod stdout;
 
 pub use config::*;
 pub use inode_ext::INodeExt;
 pub use rcore_fs::{dev::block_cache::BlockCache, vfs::*};
+pub use stdin::STDIN;
+pub use stdout::STDOUT;
 
 // BlockCache
 // 该模块也是 rcore-fs 提供的
@@ -26,7 +30,7 @@ pub use rcore_fs::{dev::block_cache::BlockCache, vfs::*};
 // 根目录将会在我们第一次使用 ROOT_INODE 时进行初始化，而初始化的方式是找到全部设备驱动中的第一个存储设备作为根目录。
 
 lazy_static! {
-    /// 根文件系统的根目录的 INode
+    /// 根文件系统的根目录的 INode, INode由rcore_fs提供
     pub static ref ROOT_INODE: Arc<dyn INode> = {
         // 选择第一个块设备
         for driver in DRIVERS.read().iter() {

@@ -61,10 +61,10 @@ __interrupt:
     .endr
 
     # 取出 CSR 并保存
-    csrr    s1, sstatus
-    csrr    s2, sepc
-    SAVE    s1, 32
-    SAVE    s2, 33
+    csrr    t0, sstatus
+    csrr    t1, sepc
+    SAVE    t0, 32
+    SAVE    t1, 33
 
     # 调用 handle_interrupt, 传入参数, 通过汇编实现
     # context: &mut Context
@@ -91,10 +91,10 @@ __restore:
     # 也就是说，如果我们令 handle_interrupt 函数返回另一个线程的 *mut Context，就可以在时钟中断后跳转到这个线程来执行。
     mv sp, a0 # 让其从 a0 中读取我们设计好的 Context, 我们可以直接在 Rust 代码中调用 __restore(context)
     # 恢复 CSR
-    LOAD    s1, 32
-    LOAD    s2, 33
-    csrw    sstatus, s1
-    csrw    sepc, s2
+    LOAD    t0, 32
+    LOAD    t1, 33
+    csrw    sstatus, t0
+    csrw    sepc, t1
 
     # 将内核栈地址写入 sscratch
     addi    t0, sp, CONTEXT_SIZE * REG_SIZE

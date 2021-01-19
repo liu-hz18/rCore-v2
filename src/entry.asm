@@ -46,6 +46,7 @@ boot_stack_top:
     # 初始内核映射所用的页表
     .section .data
     .align 12
+    .global boot_page_table
 boot_page_table:
     # boot_page_table是用二进制表示的根页表，其中包含两个 1GB 大页，
     # 分别是将虚拟地址 0x8000_0000 至 0xc000_0000 映射到物理地址 0x8000_0000 至 0xc000_0000，

@@ -2,8 +2,9 @@
 // 在我们实现的简单操作系统中，进程只需要维护页面映射，并且存储一点额外信息
 // 
 use super::*;
-//use crate::fs::*;
+use crate::fs::*;
 use xmas_elf::ElfFile;
+use alloc::{vec, vec::Vec};
 
 /// 进程的信息
 pub struct Process {
@@ -17,18 +18,18 @@ pub struct ProcessInner {
     /// 进程中的线程公用页表 / 内存映射
     pub memory_set: MemorySet, // 访存空间. ：进程中的线程会共享同一个页表，即可以访问的虚拟内存空间
     // 打开的文件描述符
-    //pub descriptors: Vec<Arc<dyn INode>>,
+    pub descriptors: Vec<Arc<dyn INode>>,
 }
 
 #[allow(unused)]
 impl Process {
-    /// 创建一个内核进程
+    /// 创建一个内核进程, 只能创建一个内核进程！！！
     pub fn new_kernel() -> MemoryResult<Arc<Self>> {
         Ok(Arc::new(Self {
             is_user: false,
             inner: Mutex::new(ProcessInner {
                 memory_set: MemorySet::new_kernel()?,
-                //descriptors: vec![STDIN.clone(), STDOUT.clone()],
+                descriptors: vec![STDIN.clone(), STDOUT.clone()], // 目前只支持打开STDIN和STDOUT
             }),
         }))
     }
@@ -39,7 +40,7 @@ impl Process {
             is_user,
             inner: Mutex::new(ProcessInner {
                 memory_set: MemorySet::from_elf(file, is_user)?,
-                //descriptors: vec![STDIN.clone(), STDOUT.clone()],
+                descriptors: vec![STDIN.clone(), STDOUT.clone()],
             }),
         }))
     }
