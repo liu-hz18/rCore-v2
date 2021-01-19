@@ -23,7 +23,15 @@
 //!   我们使用了一个全局动态内存分配器，以实现原本标准库中的堆内存分配。
 //!   而语言要求我们同时实现一个错误回调，这里我们直接 panic
 #![feature(alloc_error_handler)]
-
+//!
+//! - `#![feature(naked_functions)]`
+//!   允许使用 naked 函数，即编译器不在函数前后添加出入栈操作。
+//!   这允许我们在函数中间内联汇编使用 `ret` 提前结束，而不会导致栈出现异常
+#![feature(naked_functions)]
+//!
+//! - `#![feature(slice_fill)]`
+//!   允许将 slice 填充值
+#![feature(slice_fill)]
 
 #[macro_use]
 mod console;
@@ -34,6 +42,7 @@ mod memory;
 mod process;
 mod drivers;
 mod fs;
+mod kernel;
 
 extern crate alloc;
 
@@ -262,23 +271,12 @@ pub extern "C" fn rust_main(_hart_id: usize, dtb_pa: PhysicalAddress) -> ! { // 
     fs::init();
     println!("Finish initialization!");
     
-    let process = Process::new_kernel().unwrap();
+    // for i in 1..9usize {
+    //     start_kernel_thread(sample_process as usize, Some(&[i]));
+    // }
+    // start_user_thread("hello_world");
 
-    PROCESSOR
-        .lock()
-        .add_thread(Thread::new(process.clone(), simple as usize, Some(&[0])).unwrap());
-
-    // 把多余的 process 引用丢弃掉
-    drop(process);
-
-    extern "C" {
-        fn __restore(context: usize);
-    }
-    // 获取第一个线程的 Context
-    let context = PROCESSOR.lock().prepare_next_thread();
-    // 启动第一个线程
-    unsafe { __restore(context as usize) };
+    start_processor();
     unreachable!()
-
     //panic!("end of rust_main")
 }
