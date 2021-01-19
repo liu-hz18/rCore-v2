@@ -4,7 +4,10 @@ use super::*;
 
 pub const SYS_READ: usize = 63;
 pub const SYS_WRITE: usize = 64;
+pub const SYS_OPEN: usize = 65;
 pub const SYS_EXIT: usize = 93;
+pub const SYS_GETTID: usize = 94; // 用户线程可以获取自身的线程 ID
+pub const SYS_FORK: usize = 95;
 
 /// 系统调用在内核之内的返回值
 pub(super) enum SyscallResult {
@@ -28,6 +31,9 @@ pub fn syscall_handler(context: &mut Context) -> *mut Context {
         SYS_READ => sys_read(args[0], args[1] as *mut u8, args[2]),
         SYS_WRITE => sys_write(args[0], args[1] as *mut u8, args[2]),
         SYS_EXIT => sys_exit(args[0]),
+        SYS_GETTID => sys_get_tid(),
+        SYS_FORK => sys_fork(context),
+        SYS_OPEN => sys_open(args[1] as *mut u8, args[2]),
         _ => {
             println!("unimplemented syscall: {}", syscall_id);
             SyscallResult::Kill
