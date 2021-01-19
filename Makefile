@@ -1,5 +1,5 @@
 # 生成内核镜像 所需命令
-TARGET      := riscv64imac-unknown-none-elf
+TARGET      := riscv64gc-unknown-none-elf
 MODE        := debug
 KERNEL_FILE := target/$(TARGET)/$(MODE)/os
 BIN_FILE    := target/$(TARGET)/$(MODE)/kernel.bin
